@@ -1,0 +1,13 @@
+{
+  "name": "musicfinder",
+  "short_name": "musicfinder",
+  "description": "Music you'll love, from your Spotify history, with the evidence.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f1ea",
+  "theme_color": "#f4f1ea",
+  "icons": [
+    { "src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

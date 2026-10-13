@@ -1,0 +1,25 @@
+# Hosted version of musicfinder: a static site that runs the engine in the browser, plus one small
+# function (netlify/functions/proxy.mjs) that relays requests to the music-data APIs.
+[build]
+  command = "npm run build"
+  publish = "site"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+[functions]
+  directory = "netlify/functions"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "no-referrer"
+    X-Frame-Options = "DENY"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+
+# Pyodide lives under a versioned folder, so it can be cached for a year.
+[[headers]]
+  for = "/pyodide/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

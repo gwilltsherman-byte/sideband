@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>musicfinder: find artists and songs</title>
+  <meta name="description" content="Recommends artists and songs from your Spotify listening history, explains every pick, and measures its own accuracy on your data.">
+  <meta name="theme-color" content="#f4f1ea" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1b1a18" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%231e1a16'/%3E%3Ccircle cx='16' cy='16' r='6' fill='%23f2c14e'/%3E%3Ccircle cx='16' cy='16' r='1.6' fill='%231e1a16'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Schibsted+Grotesk:wght@400;500;700&family=Young+Serif&display=swap">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="masthead">
+    <a class="wordmark" href="#for-you" aria-label="musicfinder home">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="15" fill="currentColor"/><circle cx="16" cy="16" r="6" fill="var(--sticker)"/><circle cx="16" cy="16" r="1.6" fill="currentColor"/></svg>
+      musicfinder
+    </a>
+    <nav class="tabs" aria-label="Sections">
+      <a href="#for-you">For you</a>
+      <a href="#songs">Songs</a>
+      <a href="#explore">Explore</a>
+      <a href="#taste">Your taste</a>
+      <a href="#accuracy">Accuracy</a>
+      <a href="#setup">Setup</a>
+    </nav>
+  </header>
+  <div id="demo-strip" class="strip demo" hidden>
+    Demo mode: a simulated listener and catalogue. Names are invented; “true like-probability” is the simulation’s ground truth, shown so you can check the predictions.
+  </div>
+  <div id="job-strip" class="strip" hidden role="status" aria-live="polite">
+    <span id="job-step">Working…</span>
+    <div class="progress" aria-hidden="true"><span id="job-bar" style="width:0%"></span></div>
+    <span id="job-count" class="mono"></span>
+  </div>
+  <main id="main" tabindex="-1">
+    <p class="loading">Loading…</p>
+  </main>
+  <footer>
+    musicfinder runs on your computer. Your picks and listening data stay in a local database; only artist and song names are sent to public music services (Deezer, ListenBrainz, MusicBrainz, and Last.fm if a key is set up) to look up similarity.
+  </footer>
+  <div id="tooltip" class="tooltip" hidden></div>
+  <div id="toast" class="toast" hidden role="status" aria-live="polite"></div>
+  <audio id="player" preload="none"></audio>
+  <script src="/static/app.js" type="module"></script>
+</body>
+</html>
+

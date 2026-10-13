@@ -1,0 +1,13 @@
+{
+  "name": "musicfinder-site",
+  "private": true,
+  "description": "Hosted (Netlify) build of musicfinder: the Python engine runs in the browser via Pyodide.",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build-site.mjs",
+    "test:js": "node --test tests/js/*.test.mjs"
+  },
+  "dependencies": {
+    "pyodide": "314.0.7"
+  }
+}

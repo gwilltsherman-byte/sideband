@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+.venv/
+venv/
+# Personal listening data never belongs in git
+my_spotify_data*/
+*.zip
+.musicfinder/
+
+# Hosted-site build output and its dependencies
+node_modules/
+site/
