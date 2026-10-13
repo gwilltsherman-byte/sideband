@@ -6,17 +6,10 @@ Start with ten recommendations, listen, and mark **Like**, **Not for me** or **A
 
 ## Install on iPhone or Mac
 
-The simplest way to use Sideband is its permanently hosted web app. It works
+[Open Sideband](https://sideband.netlify.app) in Safari. The hosted app works
 with cellular data or any internet connection, so your Mac can be switched off.
 
-**Current availability:** [try the browser demo](https://gwilltsherman-byte.github.io/sideband/?demo=1)
-with simulated listening data. The full hosted app is prepared for Netlify, but
-live music lookup is not deployed yet. Installing the demo does not enable live
-recommendations or save personal listening data.
-
-Once the full hosted app is available:
-
-1. Open its public link in Safari.
+1. Open [sideband.netlify.app](https://sideband.netlify.app) in Safari.
 2. **iPhone:** tap **Share > Add to Home Screen**, then **Add**.
    If **Open as Web App** appears, leave it on.
 3. **Mac with macOS Sonoma 14 or later:** choose **File > Add to Dock**, then **Add**.
