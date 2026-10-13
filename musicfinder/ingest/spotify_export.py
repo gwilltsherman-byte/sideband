@@ -185,10 +185,23 @@ def parse_document(name: str, doc: Any) -> ImportResult:
 
 
 def parse_bytes(name: str, data: bytes) -> ImportResult:
-    """Parse one uploaded file: a ``.zip`` export or a single ``.json`` file."""
+    """Parse an export, JSON library/history, or explicit preference CSV/TSV/text list."""
     lower = name.lower()
     if lower.endswith(".zip") or data[:2] == b"PK":
         return _parse_zip(data)
+    if lower.endswith((".csv", ".tsv", ".txt")):
+        from musicfinder.ingest.quick_input import MAX_QUICK_BYTES, parse_quick_input
+
+        if len(data) > MAX_QUICK_BYTES:
+            raise ValueError("This preference list is too large. Use up to 200 KB and 500 entries at a time.")
+        try:
+            text = data.decode("utf-8-sig")
+        except UnicodeDecodeError as e:
+            raise ValueError("Save or export this list as UTF-8 text, CSV or TSV, then try again.") from e
+        quick = parse_quick_input(text, name=name)
+        if quick.errors:
+            raise ValueError(" ".join(quick.errors[:3]))
+        return ImportResult(library=quick.library, recognized=[name])
     if not lower.endswith(".json"):
         return ImportResult(ignored=[name])
     try:
@@ -214,12 +227,12 @@ def _parse_zip(data: bytes) -> ImportResult:
 
 
 def load_paths(paths: Iterable[str | Path]) -> ImportResult:
-    """Load any mix of export folders, ``.zip`` archives and ``.json`` files from disk."""
+    """Load export folders, archives, JSON, and explicit CSV/TSV or selected text lists."""
     res = ImportResult()
     for raw in paths:
         p = Path(raw).expanduser()
         if p.is_dir():
-            files = sorted(f for f in p.rglob("*") if f.is_file() and f.suffix.lower() in {".json", ".zip"})
+            files = sorted(f for f in p.rglob("*") if f.is_file() and f.suffix.lower() in {".json", ".zip", ".csv", ".tsv"})
             for f in files:
                 res.extend(parse_bytes(str(f.relative_to(p)), f.read_bytes()))
         elif p.is_file():

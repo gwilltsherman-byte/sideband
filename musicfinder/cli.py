@@ -52,7 +52,7 @@ def cmd_import(args) -> int:
     summary = app.import_paths(args.paths)
     print(json.dumps(summary, indent=2))
     if not summary["plays"] and not summary["library"]:
-        print("No Spotify listening data found in those files.", file=sys.stderr)
+        print("No music preferences or Spotify listening data found in those files.", file=sys.stderr)
         return 1
     return 0
 
@@ -197,7 +197,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--no-browser", action="store_true")
     p.set_defaults(fn=cmd_serve)
 
-    p = sub.add_parser("import", parents=[common], help="import a Spotify data export (folder, .zip or .json files)")
+    p = sub.add_parser("import", parents=[common], help="import music preferences (CSV/TSV/TXT) or Spotify history (ZIP/JSON)")
     p.add_argument("paths", nargs="+")
     p.set_defaults(fn=cmd_import)
 

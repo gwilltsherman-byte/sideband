@@ -87,6 +87,15 @@ def dispatch_steps(app: MusicFinder, method: str, path: str, query: dict[str, li
             if path in ("/api/build", "/api/evaluate", "/api/prepare"):
                 started = start_job(path.rsplit("/", 1)[-1])
                 return 200, {"started": started, "job": app.job.to_dict()}
+            if path == "/api/quick-input":
+                text = data.get("text", "")
+                if not isinstance(text, str):
+                    raise ValueError("Paste artist or song names as text")
+                preview = data.get("preview", True)
+                if not isinstance(preview, bool):
+                    raise ValueError("preview must be true or false")
+                return 200, app.quick_input(text, str(data.get("kind", "artists")), preview,
+                                            str(data.get("name", "")))
             if path == "/api/feedback":
                 return 200, (yield from app.add_feedback_steps(
                     str(data.get("artist", "")), str(data.get("verdict", "")), str(data.get("track", "")),

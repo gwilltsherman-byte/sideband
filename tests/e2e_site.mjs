@@ -91,6 +91,7 @@ check(await page.locator("#run-eval").isDisabled(), "accuracy test waits for the
 
 // 2. Later, the Spotify export arrives: add it, and the map is updated with it.
 await page.goto(base + "/#setup");
+await page.locator("#history-details summary").click();
 await page.waitForSelector("#drop", { timeout: 60_000 });
 await page.setInputFiles("#files", zipPath);
 await page.waitForFunction(() => /plays \(/.test(document.querySelector("#file-log")?.textContent || ""), null, { timeout: 180_000 });

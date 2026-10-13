@@ -25,11 +25,20 @@ Open `http://127.0.0.1:8765` if the browser does not open automatically.
 Keep Terminal open. Control-C stops the server. Next time, return to the
 repository folder and run `.venv/bin/sideband serve`.
 
-In Setup, import your Spotify ZIP or select all its JSON files together, then
-choose **Improve my recommendations**. Sideband updates your map and tests new
-eligible history in one job. It fits personal settings only when validation
-supports a change. Your plays and skips shape the recommendations even when
-there is not enough evidence to fit settings.
+In Setup, start without waiting for Spotify: paste favourite artists (one per
+line), switch to favourite songs (`Artist — Song`), or choose a playlist CSV/TSV
+with named artist and track columns. Review the preview, choose **Use this
+taste**, then **Find my music**. Plain TXT files work too. A list of links alone
+does not contain the music names needed by Sideband.
+
+Your existing picks and ratings are kept, and duplicate uploads do not count
+twice. The input is saved locally as your declared favourites, not invented
+listening history. Artist/song entry works even when the music lookup service
+is disconnected; finding new recommendations still needs that service.
+
+If you already have a Spotify export, add its ZIP or JSON files in the optional
+history section. **Improve from my history** then updates your map and checks
+personal settings using real listening dates and outcomes.
 
 You can also pick artists you like and choose **Find my music** before an export
 arrives. On For You, start with ten artists, listen, rate them, then choose
