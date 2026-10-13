@@ -13,13 +13,23 @@ export function nextRecommendationAction(state) {
   if (state.job?.running) return "working";
   const next = state.personalization?.next_action;
   if (next === "prepare") return "prepare";
-  if (next === "import") return state.plays ? "more_history" : "history";
+  if (next === "import") return state.plays ? "more_history" : state.has_data ? "taste" : "history";
   if (next === "listen") return "current";
-  if (!state.plays) return "history";
+  if (!state.plays) return state.has_data ? "taste" : "history";
   if (!state.graph_ready || !state.personalization?.tested_current) return "prepare";
   // A fresh unsuccessful test is still a completed test. Do not keep asking the
   // listener to rerun an unchanged history just because fitting was inconclusive.
   return "current";
+}
+
+export function quickReviewCurrent(review, text, kind, name = "") {
+  return Boolean(review && review.text === text && review.kind === kind && review.name === name
+    && review.preview?.can_save === true && review.preview.items?.length
+    && !review.preview.errors?.length);
+}
+
+export function quickInputKind(kind, filename = "") {
+  return filename ? "auto" : kind;
 }
 
 export function latestRequest() {

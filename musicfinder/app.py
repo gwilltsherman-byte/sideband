@@ -16,9 +16,9 @@ from musicfinder.evaluation import EvalConfig, ModelConfig, backtest_steps
 from musicfinder.explore import genre_shares, territories
 from musicfinder.feedback import calibration, feedback_stats, like_probability
 from musicfinder.graph import CrawlConfig, KnowledgeGraph, annotate_steps, crawl_steps, expand_steps
-from musicfinder.ingest import ImportResult, load_paths, parse_bytes, parse_document, reconcile
+from musicfinder.ingest import ImportResult, load_paths, parse_bytes, parse_document, reconcile, parse_quick_input
 from musicfinder.models import Feedback, LibraryItem, Play
-from musicfinder.normalize import artist_key
+from musicfinder.normalize import artist_key, track_key
 from musicfinder.recommender import FEATURES, Candidate, ScoredPool, diversify, score_pool
 from musicfinder.sources import LiveKnowledge
 from musicfinder.sources.base import Knowledge
@@ -205,12 +205,46 @@ class MusicFinder:
 
     def _store_import(self, res: ImportResult) -> dict:
         added_plays = self.store.add_plays(res.plays)
-        added_lib = self.store.add_library(res.library)
-        if added_plays or added_lib:
+        quick_kinds = ("picked_artist", "saved_track", "playlist_track")
+        quick = [i for i in res.library if i.kind in quick_kinds]
+        regular = [i for i in res.library if i.kind not in quick_kinds]
+        applied = self.store.apply_quick_input(quick) if quick else {"added_library_items": 0, "changed": False}
+        added_lib = self.store.add_library(regular) + applied["added_library_items"]
+        if added_plays or added_lib or applied["changed"]:
             self._invalidate(graph=True)
         summary = res.summary()
         summary.update({"new_plays_added": added_plays, "new_library_items_added": added_lib})
         return summary
+
+    def quick_input(self, text: str, kind: str = "artists", preview: bool = True, name: str = "") -> dict:
+        """Review/save immediate taste signals; these are never represented as listening history."""
+        parsed = parse_quick_input(text, mode=kind, name=name)
+        result = parsed.to_dict()
+        if preview:
+            return result
+        if not result["can_save"]:
+            raise ValueError(" ".join(parsed.errors) or "Add at least one artist or song before saving")
+        with self._lock:
+            added = self.store.apply_quick_input(parsed.library)
+            if added["changed"]:
+                self._invalidate(graph=True)
+        return {**result, **added, "picks": self.picks(), "input_summary": self.input_summary()}
+
+    def input_summary(self) -> dict:
+        library = self.library()
+        counts = {kind: sum(i.kind == kind for i in library) for kind in
+                  ("picked_artist", "saved_track", "playlist_track", "followed_artist")}
+        positive = [i for i in library if i.kind in ("picked_artist", "saved_track", "playlist_track", "saved_album", "followed_artist")]
+        songs: dict[tuple[str, str], dict] = {}
+        artists: dict[str, str] = {}
+        for i in positive:
+            artists.setdefault(artist_key(i.artist), i.artist)
+            if i.kind in ("saved_track", "playlist_track") and i.track:
+                songs.setdefault((artist_key(i.artist), track_key(i.track)), {"artist": i.artist, "track": i.track})
+        return {"picked_artists": counts["picked_artist"], "saved_tracks": counts["saved_track"],
+                "playlist_tracks": counts["playlist_track"], "followed_artists": counts["followed_artist"],
+                "library_items": len(positive), "positive_artists": len(artists),
+                "artists": list(artists.values())[:12], "songs": list(songs.values())[:12]}
 
     def clear(self, what: str = "data") -> None:
         if what in ("data", "all"):
@@ -417,7 +451,7 @@ class MusicFinder:
         current = bool(plays and model.get("history_signature") == signature)
         if not plays:
             status, action = "picks", "prepare" if self.has_data() and not self.graph_ready() else "import"
-            reason = "Import listening history to learn from your plays and skips, or start with favourite artists."
+            reason = "Favourite artists and songs are enough to start. Rate the recommendations to refine your taste; listening history is optional."
         elif not self.graph_ready():
             status, action = "needs_update", "prepare"
             reason = "Update recommendations to include your latest history and favourites."
@@ -689,6 +723,7 @@ class MusicFinder:
             "model": self.model().describe(),
             "personalised_model": bool(self.store.get_setting("model")),
             "personalization": self.personalization_status(),
+            "input_summary": self.input_summary(),
         }
         kg = self._current_kg()
         if kg is not None:
@@ -716,4 +751,5 @@ class MusicFinder:
             "evaluation_available": bool(ev and ev.get("ok")),
             "personalised_model": bool(self.store.get_setting("model")),
             "personalization": self.personalization_status(),
+            "input_summary": self.input_summary(),
         }

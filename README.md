@@ -1,6 +1,6 @@
 # Sideband
 
-Sideband helps you find artists and songs from music you already enjoy. Import your Spotify listening history, then choose **Improve my recommendations**. It updates your music map and tests personal settings in one job, keeping defaults when your history does not support a reliable change. You can also start with a few favourite artists while you wait for an export.
+Sideband helps you find artists and songs from music you already enjoy. **Start now without an export:** paste favourite artist names, paste favourite songs, or choose a playlist CSV/TSV. Review the names, choose **Use this taste**, then **Find my music**. Listening history is optional.
 
 Start with ten recommendations, listen, and mark **Like**, **Not for me** or **Already know**. Ratings immediately change the taste profile; **Apply ratings** updates the visible list without moving you elsewhere. You can undo a rating, and your adventurous setting and list length survive a reload.
 
@@ -66,11 +66,32 @@ Predictions depend on the available listening and similarity data. Mood, context
 
 ## Getting started
 
-**Right away:** name a few artists you love (Setup tab, or `sideband pick "Artist" "Another artist"`). Sideband maps the music around them. Marking artists you can't stand helps too. A favourite or a new Like overrides older skips of that artist; hiding a single song does not reject the whole artist.
+**Right away:** in Setup, paste several artists you love, one per line. Or switch to songs and use one `Artist — Song` line per song. You can choose a UTF-8 TXT file or a CSV/TSV with named artist and track columns. Review the preview, choose **Use this taste**, then **Find my music**. No Spotify export, new account or API key is needed for this input. Adding the same list again does not increase its weight.
+
+For a song list:
+
+```text
+Radiohead — Weird Fishes
+Björk — Jóga
+Nina Simone — Sinnerman
+```
+
+For a playlist table:
+
+```csv
+Artist,Track Name
+Radiohead,Weird Fishes
+Björk,Jóga
+Nina Simone,Sinnerman
+```
+
+Artist names containing commas belong on their own line, or in quoted CSV fields. A playlist URL or list of Spotify track links is not enough: use music names or a table containing them. The preview shows errors before anything is saved. These are favourites, not measured plays or skips, so the history backtest waits for real listening data; your recommendation ratings work immediately.
+
+You can still search artists individually or use `sideband pick "Artist" "Another artist"`. Marking artists you can't stand helps too. A favourite or a new Like overrides older skips of that artist; hiding a single song does not reject the whole artist.
 
 **For recommendations based on how you actually listen:** add your Spotify history. You don't have to wait for it before using the app. Choose **Improve my recommendations** after importing: eligible new history is tested once, and importing the same files does not trigger another build. The recommendation page shows which history is in use and whether its settings have been tested.
 
-### Getting your data
+### Optional: add listening history you already have
 
 1. Go to **Spotify → Account → [Privacy settings](https://www.spotify.com/account/privacy/)**.
 2. Tick **Extended streaming history** and request it. This export lists every play since you joined, including how long you listened and whether you skipped. Spotify can take a few days, and up to 30, to send it.
@@ -125,7 +146,7 @@ Older versions reported higher preference AUC after looking up future outcome ar
 ```
 sideband serve [--demo] [--phone] [--port 8765] [--no-browser]
 sideband pick ARTIST... [--dislike | --remove]   # start without any export
-sideband import PATH...                 # folder, .zip or .json from the Spotify export
+sideband import PATH...                 # CSV/TSV/TXT preferences or Spotify ZIP/JSON history
 sideband config --lastfm-key KEY [--no-listenbrainz]   # optional; or set LASTFM_API_KEY
 sideband profile
 sideband recommend [-n 30] [--explore 0.3]

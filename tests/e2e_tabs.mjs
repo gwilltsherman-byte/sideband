@@ -13,7 +13,7 @@ const context = await browser.newContext(); // one profile: the tabs share Index
 const open = async (hash = "#setup") => {
   const p = await context.newPage();
   await p.goto(base + "/" + hash);
-  await p.waitForSelector("#drop, .rec, .empty", { timeout: 120_000 });
+  await p.waitForSelector("#quick-text, .rec, .empty", { timeout: 120_000 });
   return p;
 };
 const plays = async (p) => p.evaluate(async () => (await (await import("/static/browser-api.js")).request("GET", "/api/state")).payload.plays);
@@ -45,7 +45,7 @@ const d = await open();
 await c.waitForSelector("#elsewhere", { timeout: 15_000 });
 await d.evaluate(async () => (await import("/static/browser-api.js")).request("POST", "/api/clear", { what: "data" }));
 await c.click("#elsewhere button");
-await c.waitForSelector("#drop", { timeout: 120_000 });
+await c.waitForSelector("#quick-text", { timeout: 120_000 });
 await d.waitForSelector("#elsewhere", { timeout: 15_000 });
 check((await plays(c)) === 0, "taking over in the old tab picks up the deletion made in the newer tab");
 await browser.close();

@@ -1,5 +1,5 @@
 // Sideband single-page UI. Plain ES module, no build step.
-import { explorationChoice, batchChoice, nextRecommendationAction, latestRequest } from "./ui-state.js";
+import { explorationChoice, batchChoice, nextRecommendationAction, latestRequest, quickReviewCurrent, quickInputKind } from "./ui-state.js";
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const main = $("#main");
@@ -14,6 +14,7 @@ const STANDALONE = (window.matchMedia && matchMedia("(display-mode: standalone)"
 const player = $("#player");
 let state = null;
 let importing = false;
+let quickSaving = false;
 
 const FEATURE_NAMES = {
   cf: "Similar to artists you play a lot",
@@ -163,7 +164,7 @@ async function startJob(path) {
 // A button that starts a job: disabled while starting, then onStarted() (by default, redraw the view).
 function jobButton(btn, path, onStarted = () => route()) {
   if (!btn) return;
-  const canOpen = () => path === "/api/prepare" && state.graph_ready && ["current", "history", "more_history"].includes(nextRecommendationAction(state));
+  const canOpen = () => path === "/api/prepare" && state.graph_ready && ["current", "history", "more_history", "taste"].includes(nextRecommendationAction(state));
   if (state.lookup_available === false && !canOpen()) btn.disabled = true;
   btn.addEventListener("click", async () => {
     if (canOpen()) {
@@ -249,11 +250,16 @@ function staleStrip() {
   main.prepend(note);
 }
 
-function basisText() {
-  const n = state.picks ? state.picks.loved : 0;
+function basisText(source = state) {
+  const summary = source.input_summary || {};
+  const loved = source.picks?.loved;
+  const n = summary.picked_artists ?? (Array.isArray(loved) ? loved.length : loved || 0);
   const parts = [];
-  if (state.plays) parts.push(`${fmt(state.plays)} plays analysed`);
+  if (source.plays) parts.push(`${fmt(source.plays)} plays analysed`);
   if (n) parts.push(`${n} artist${n === 1 ? "" : "s"} you picked`);
+  if (summary.saved_tracks) parts.push(`${fmt(summary.saved_tracks)} saved song${summary.saved_tracks === 1 ? "" : "s"}`);
+  if (summary.playlist_tracks) parts.push(`${fmt(summary.playlist_tracks)} playlist song${summary.playlist_tracks === 1 ? "" : "s"}`);
+  if (summary.followed_artists) parts.push(`${fmt(summary.followed_artists)} followed artist${summary.followed_artists === 1 ? "" : "s"}`);
   return parts.join(" + ") || "your picks";
 }
 
@@ -453,6 +459,7 @@ function personalizationPanel() {
   const title = {
     working: "Your recommendations are being updated",
     history: "Make this more personal with your history",
+    taste: "Your favourites shape these picks",
     more_history: "More history can sharpen personal settings",
     prepare: state.plays ? "Get more from your listening history" : "Update your music map",
     current: p.model_current ? "Your history is shaping these picks" : "Your history has been checked",
@@ -464,6 +471,7 @@ function personalizationPanel() {
   const details = state.plays ? `${fmt(state.plays)} plays${range}${p.has_skip_data === false ? " · no skip information" : ""}` : basisText();
   const action = next === "prepare" ? `<button id="prepare-for-you" class="primary">${state.plays ? "Improve from my history" : "Update my recommendations"}</button>`
     : next === "history" ? `<a class="button" href="#setup">Add my history</a>`
+    : next === "taste" ? `<a class="button" href="#setup">Refine my taste</a>`
     : next === "more_history" ? `<a class="button" href="#setup">Add more history</a>`
     : `<a class="button" href="#accuracy">See accuracy and evidence</a>`;
   return `<section class="personalization" aria-label="Recommendation status"><div><h2>${title}</h2><p>${esc(reason)}</p><p class="small muted">${details}</p></div><div class="row">${action}</div></section>`;
@@ -652,13 +660,17 @@ async function viewTaste() {
   if (mine !== routeSeq) return;
   const genres = p.genres ? `<section><h2>Genres</h2>${bars(p.genres.slice(0, 12).map((g) => ({ label: g.tag, value: g.share, text: pct(g.share) })))}</section>` : "";
   if (!p.plays) {
-    // Only picked artists so far: nothing to measure yet.
+    const inputs = p.input_summary || {};
+    const artists = inputs.artists?.length ? inputs.artists : p.picks.loved;
+    const songs = inputs.songs || [];
     main.innerHTML = `
       <div class="view-head"><div><h1>Your taste so far</h1>
-      <p>Based on the ${fmt(p.picks.loved.length)} artists you picked. Import your Spotify history in <a href="#setup">Setup</a> to see how you actually listen: hours, skips, what’s rising and fading.</p></div></div>
+      <p>Based on ${esc(basisText(p))}. Your chosen artists and songs guide recommendations now; these are favourites, not a record of plays or skips.</p></div></div>
       <div class="split section">
-        <section><h2>Artists you love</h2><ol class="songs">${p.picks.loved.map((n) => `<li class="song"><div class="song-title">${esc(n)}</div></li>`).join("")}</ol>
-          ${p.picks.disliked.length ? `<p class="small muted">Not for you: ${esc(p.picks.disliked.join(", "))}</p>` : ""}</section>
+        <section class="stack"><div><h2>Artists from your favourites</h2><ol class="songs">${artists.map((n) => `<li class="song"><div class="song-title">${esc(n)}</div></li>`).join("")}</ol>
+          ${p.picks.disliked.length ? `<p class="small muted">Not for you: ${esc(p.picks.disliked.join(", "))}</p>` : ""}</div>
+          ${songs.length ? `<div><h2>Songs you saved</h2><ol class="songs">${songs.map((s) => `<li class="song"><div><div class="song-title">${esc(s.track)}</div><div class="song-why">${esc(s.artist)}</div></div><a class="button" href="${spotifyUrl(s.artist, s.track)}" target="_blank" rel="noopener">Spotify ↗</a></li>`).join("")}</ol></div>` : ""}
+          <p class="small muted">Showing a sample of your saved input. <a href="#setup">Add or refine your favourites</a>.</p></section>
         <aside class="stack">${genres || `<p class="muted small">Genres appear once your music map is built.</p>`}</aside>
       </div>`;
     return;
@@ -836,30 +848,33 @@ function updateBuildControls() {
   const btn = $("#build");
   if (!btn) return;
   const ready = canBuild();
-  const onlyOpen = state.graph_ready && ["current", "history", "more_history"].includes(nextRecommendationAction(state));
-  btn.disabled = !ready || state.job.running || importing || (state.lookup_available === false && !onlyOpen);
+  const onlyOpen = state.graph_ready && ["current", "history", "more_history", "taste"].includes(nextRecommendationAction(state));
+  btn.disabled = !ready || state.job.running || importing || quickSaving || (state.lookup_available === false && !onlyOpen);
   btn.textContent = buildLabel();
   const historyButton = $("#prepare-history");
   if (historyButton) {
     historyButton.hidden = !state.plays;
-    historyButton.disabled = state.job.running || importing || (state.lookup_available === false && !onlyOpen);
+    historyButton.disabled = state.job.running || importing || quickSaving || (state.lookup_available === false && !onlyOpen);
     historyButton.textContent = buildLabel();
   }
-  [$("#clear-data"), $("#clear-fb")].forEach((b) => { if (b) b.disabled = importing; });
+  [$("#clear-data"), $("#clear-fb")].forEach((b) => { if (b) b.disabled = importing || quickSaving; });
   const files = $("#files");
-  if (files) files.disabled = importing;
+  if (files) files.disabled = importing || quickSaving;
   const drop = $("#drop");
-  if (drop) drop.setAttribute("aria-disabled", String(importing));
+  if (drop) drop.setAttribute("aria-disabled", String(importing || quickSaving));
   const hint = $("#build-hint");
   if (!hint) return;
-  if (state.lookup_available === false) hint.textContent = "History imports are available. Connect the lookup service to find new music.";
+  if (state.lookup_available === false) hint.textContent = "Your favourites can be saved here now. Connect the lookup service to find new music.";
+  else if (quickSaving) hint.textContent = "Saving your favourites. Your existing picks and ratings are kept.";
   else if (importing) hint.textContent = "Finish importing first. Your favourite picks are kept.";
   else if (state.job.running) hint.textContent = "Working on it (see the progress bar). Picks you add meanwhile are used when you update next.";
-  else if (!ready) hint.textContent = "Pick at least one artist first.";
-  else if (!state.plays && state.picks.loved < 3) hint.textContent = "A few more picks will sharpen it, but you can start now.";
+  else if (!ready) hint.textContent = "Paste a few favourite artists or songs above, then review and save them.";
+  else if (!state.plays && (state.input_summary?.positive_artists ?? state.picks.loved) < 3) hint.textContent = "A few more different artists can broaden your taste map, but you can start now.";
   else hint.textContent = state.plays
     ? `Maps your taste and checks the best settings from your history in one step${BROWSER ? "; keep this page open" : ""}. The first run can take several minutes.`
     : `Takes a minute or two${BROWSER ? "; keep this page open" : ""}.`;
+  const quickForm = $("#quick-form");
+  if (quickForm) quickForm.dispatchEvent(new Event("input-state"));
 }
 
 function buildLabel() {
@@ -869,16 +884,175 @@ function buildLabel() {
   return "Find my music";
 }
 
+function quickStarterMarkup() {
+  const kind = store("mf.quickKind") === "songs" ? "songs" : "artists";
+  const draft = (store("mf.quickDraft") || "").slice(0, 200000);
+  return `<section class="quick-starter" aria-labelledby="quick-heading"><h2 id="quick-heading">Start with music you already love</h2>
+    <p>Paste favourites or a playlist list. No Spotify export, sign-in or waiting required. You review the names before saving them ${WHERE}.</p>
+    <form id="quick-form">
+      <fieldset class="quick-kind"><legend>What are you adding?</legend><label><input type="radio" name="quick-kind" value="artists" ${kind === "artists" ? "checked" : ""}> Favourite artists</label><label><input type="radio" name="quick-kind" value="songs" ${kind === "songs" ? "checked" : ""}> Favourite songs or playlist</label></fieldset>
+      <label for="quick-text" id="quick-text-label">${kind === "songs" ? "Artist — Song, one per line" : "Artist names, one per line"}</label>
+      <textarea id="quick-text" rows="5" maxlength="200000" spellcheck="false" aria-describedby="quick-help" placeholder="${kind === "songs" ? "Radiohead — Weird Fishes/Arpeggi\nBjörk — Joga" : "Radiohead\nBjörk\nStevie Wonder"}">${esc(draft)}</textarea>
+      <p class="small muted" id="quick-help">${kind === "songs" ? "Put the artist first, then a dash and the song title. A playlist CSV or TSV with artist and song columns works too." : "Keep each artist on its own line, including names with commas. Song or playlist files with artist columns work too."} Spotify links alone don’t include names; paste the names instead.</p>
+      <div class="row"><button type="submit" class="primary" id="quick-preview">Review my taste</button><button type="button" id="quick-file-button">Choose CSV, TSV or text file</button></div>
+      <input id="quick-files" type="file" accept=".csv,.tsv,.txt,text/plain,text/csv,text/tab-separated-values" hidden>
+    </form>
+    <p id="quick-status" class="small" role="status"></p>
+    <div id="quick-review"></div>
+    <div class="row" id="quick-save-controls" hidden><button id="quick-use" class="primary" disabled>Use this taste</button><button id="quick-edit" class="quiet">Edit my text</button></div>
+    <p id="quick-saved" class="small muted">${state.has_data ? `Saved input: ${esc(basisText())}.` : "Names are added to your saved taste only after you choose “Use this taste”."}</p>
+    <div class="row build-row"><button class="primary" id="build"></button><a class="button" href="#taste" id="quick-taste" ${state.has_data ? "" : "hidden"}>View my saved taste</a><span class="small muted" id="build-hint"></span></div>
+    <p class="small muted">Your draft stays in this browser so you can return to it. Favourites help Sideband find related artists and songs without creating listening history or an accuracy score. Saving them works without music lookups; finding new music needs a connected service.</p>
+  </section>`;
+}
+
+function bindQuickStarter(chipsBox) {
+  const form = $("#quick-form");
+  const text = $("#quick-text");
+  const status = $("#quick-status");
+  const box = $("#quick-review");
+  const previewButton = $("#quick-preview");
+  const useButton = $("#quick-use");
+  const saveControls = $("#quick-save-controls");
+  const fileButton = $("#quick-file-button");
+  const fileInput = $("#quick-files");
+  const kindInputs = [...form.querySelectorAll("input[name=quick-kind]")];
+  const kind = () => kindInputs.find((input) => input.checked).value;
+  const requests = latestRequest();
+  let review = null;
+  let filename = "";
+  const effectiveKind = () => quickInputKind(kind(), filename);
+  let busy = false;
+  const update = () => {
+    previewButton.disabled = busy || quickSaving || !text.value.trim();
+    useButton.disabled = busy || quickSaving || importing || !quickReviewCurrent(review, text.value, effectiveKind(), filename);
+    fileButton.disabled = busy || quickSaving || importing;
+  };
+  form.addEventListener("input-state", update);
+  const invalidate = () => {
+    requests.start();
+    review = null;
+    useButton.disabled = true;
+    saveControls.hidden = true;
+    box.innerHTML = "";
+    status.textContent = "Review your changed text before saving it.";
+    store("mf.quickDraft", text.value);
+    store("mf.quickKind", kind());
+    update();
+  };
+  text.addEventListener("input", () => { filename = ""; invalidate(); });
+  kindInputs.forEach((input) => input.addEventListener("change", () => {
+    filename = "";
+    invalidate();
+    $("#quick-text-label").textContent = kind() === "songs" ? "Artist — Song, one per line" : "Artist names, one per line";
+    text.placeholder = kind() === "songs" ? "Radiohead — Weird Fishes/Arpeggi\nBjörk — Joga" : "Radiohead\nBjörk\nStevie Wonder";
+    $("#quick-help").textContent = (kind() === "songs"
+      ? "Put the artist first, then a dash and the song title. A playlist CSV or TSV with artist and song columns works too."
+      : "Keep each artist on its own line, including names with commas. Song or playlist files with artist columns work too.")
+      + " Spotify links alone don’t include names; paste the names instead.";
+  }));
+  const preview = async () => {
+    const token = requests.start();
+    const snapshot = { text: text.value, kind: effectiveKind(), name: filename };
+    busy = true;
+    review = null;
+    saveControls.hidden = true;
+    update();
+    status.textContent = "Reading your music list…";
+    try {
+      const parsed = await api("/api/quick-input", { method: "POST", body: { ...snapshot, preview: true } });
+      if (!requests.current(token) || !form.isConnected) return;
+      review = { ...snapshot, preview: parsed };
+      const items = parsed.items || [];
+      const notices = [...(parsed.errors || []), ...(parsed.warnings || [])];
+      box.innerHTML = `${notices.length ? `<ul class="quick-notices">${notices.map((note) => `<li>${esc(note)}</li>`).join("")}</ul>` : ""}
+        ${items.length ? `<div class="quick-review-list"><table><thead><tr><th scope="col">Artist</th><th scope="col">Song, if provided</th></tr></thead><tbody>${items.map((item) => `<tr><td>${esc(item.artist)}</td><td>${esc(item.track || "—")}</td></tr>`).join("")}</tbody></table></div>` : ""}`;
+      saveControls.hidden = !items.length;
+      status.textContent = parsed.can_save
+        ? `${fmt(items.length)} favourite${items.length === 1 ? "" : "s"} found. Check that artist and song names are in the right columns, then choose “Use this taste”. These names haven’t been added to your saved taste yet.`
+        : "This list needs a change before it can be saved. Edit the text and review it again.";
+      useButton.textContent = `Use these ${fmt(items.length)} favourite${items.length === 1 ? "" : "s"}`;
+    } catch (err) {
+      if (requests.current(token) && form.isConnected) {
+        box.innerHTML = "";
+        status.textContent = `Couldn’t read this list: ${err.message}. Edit it or try another file.`;
+      }
+    } finally {
+      busy = false;
+      if (form.isConnected) update();
+    }
+  };
+  form.addEventListener("submit", (event) => { event.preventDefault(); preview(); });
+  $("#quick-edit").addEventListener("click", () => { text.focus(); text.scrollIntoView({ block: "center" }); });
+  fileButton.addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", async () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+    const readToken = requests.start();
+    review = null;
+    saveControls.hidden = true;
+    box.innerHTML = "";
+    update();
+    if (file.size > 200000) { status.textContent = "Choose a text or playlist file smaller than 200 KB, or paste up to 500 favourites."; fileInput.value = ""; return; }
+    busy = true;
+    update();
+    status.textContent = "Reading your file…";
+    try {
+      const contents = new TextDecoder("utf-8", { fatal: true }).decode(await file.arrayBuffer());
+      if (!requests.current(readToken) || !form.isConnected) return;
+      text.value = contents;
+      invalidate();
+      filename = file.name;
+      await preview();
+    } catch (err) { if (requests.current(readToken) && form.isConnected) status.textContent = `Couldn’t read this file: ${err.message}. Save the file as UTF-8 text and try again.`; }
+    finally { busy = false; fileInput.value = ""; if (form.isConnected) update(); }
+  });
+  useButton.addEventListener("click", async () => {
+    if (quickSaving || importing || !quickReviewCurrent(review, text.value, effectiveKind(), filename)) return;
+    const snapshot = { text: review.text, kind: review.kind, name: review.name };
+    quickSaving = true;
+    text.disabled = true;
+    kindInputs.forEach((input) => { input.disabled = true; });
+    update();
+    updateBuildControls();
+    status.textContent = "Saving your favourites…";
+    try {
+      const saved = await api("/api/quick-input", { method: "POST", body: { ...snapshot, preview: false } });
+      await refreshState();
+      if (chipsBox.isConnected && saved.picks) chipsBox.innerHTML = pickChips(saved.picks);
+      store("mf.quickDraft", "");
+      if (!form.isConnected) { toast("Your favourites were saved locally."); return; }
+      const added = saved.added_library_items || 0;
+      status.textContent = `${added ? `${fmt(added)} new favourite${added === 1 ? "" : "s"} saved.` : "These favourites are already saved."} ${state.lookup_available === false ? "Your saved taste is ready to view. New music discovery needs the lookup service." : "Choose “Find my music” or “Update my recommendations” to use them."}${saved.removed_disliked_picks ? ` ${fmt(saved.removed_disliked_picks)} previous “Not for me” choice${saved.removed_disliked_picks === 1 ? " was" : "s were"} replaced by these favourites.` : ""}`;
+      $("#quick-saved").textContent = `Saved input: ${basisText()}. Your plays and ratings are kept.`;
+      $("#quick-taste").hidden = false;
+      saveControls.hidden = true;
+      review = null;
+      text.value = "";
+      box.innerHTML = "";
+    } catch (err) { if (form.isConnected) status.textContent = `Couldn’t save your list: ${err.message}. Your reviewed list is still here to retry.`; }
+    finally {
+      quickSaving = false;
+      text.disabled = false;
+      kindInputs.forEach((input) => { input.disabled = false; });
+      if (form.isConnected) update();
+      updateBuildControls();
+    }
+  });
+  update();
+}
+
 async function viewSetup() {
   const mine = routeSeq;
   const picks = await api("/api/picks");
   if (mine !== routeSeq) return;
   main.innerHTML = `
     <div class="view-head"><div><h1>Find the music you’ll love — and see why.</h1>
-      <p>Use your Spotify history for recommendations that reflect how you actually listen. One button maps your taste, tests it against later listening and fits settings when the evidence is reliable. You can also start with favourite artists while you wait for an export.</p></div></div>
+      <p>Start now with favourite artists, songs or a playlist list. Sideband uses those signals to find music around your taste. Existing listening history is optional.</p></div></div>
     ${BROWSER && IOS && !STANDALONE && !state.demo ? `<div class="note"><p><b>On an iPhone, do this first:</b> tap Share → <b>Add to Home Screen</b>, then open Sideband from the new icon and do the steps below there. The Home Screen app keeps its own copy of your data, separate from Safari, and Safari may delete website data after about a week without a visit.</p></div>` : ""}
-    <ol class="steps">
-      <li><div><h2>Add your listening history</h2>
+    ${quickStarterMarkup()}
+    <details id="history-details" class="section export-help"><summary>Optional: add existing listening history</summary><div class="stack">
+      <div><h2>Add a Spotify export you already have</h2>
         <p>Already have a Spotify export? Choose the ZIP or all its JSON files together. Importing it again adds only new plays, and keeps your picks and ratings.</p>
         <label class="drop" id="drop" for="files"><strong>Drop my_spotify_data.zip, or the JSON files inside it</strong>
           <span class="muted">or ${BROWSER ? "tap" : "click"} to choose files. Everything stays ${WHERE}.</span></label>
@@ -886,17 +1060,16 @@ async function viewSetup() {
         <ul class="file-log" id="file-log"></ul>
         <p class="small" id="data-status" role="status">${state.plays ? `${fmt(state.plays)} plays imported.` : "No history imported yet."}</p>
         <div class="row"><button class="primary" id="prepare-history" ${state.plays ? "" : "hidden"}>Improve from my history</button><a href="#accuracy" ${state.plays ? "" : "hidden"} id="history-accuracy">See my accuracy</a></div>
-        <details class="export-help"><summary>How to get a Spotify export</summary><p>Request <b>Extended streaming history</b> in Spotify’s <a href="https://www.spotify.com/account/privacy/" target="_blank" rel="noopener">privacy settings</a>. It includes listening dates and recorded skips. The faster <b>Account data</b> package works too; it has no skip information. You can import both, including saved songs, followed artists, playlists and hidden songs. While you wait for it, start with favourites below.</p></details></div></li>
-      <li><div><h2>Pick artists you love</h2>
-        <p>No export yet? Pick a few favourites across the kinds of music you like and start now. With history, use picks to highlight favourites it missed. Mark artists you don’t enjoy to steer away from their sound.</p>
+        <p class="small muted">A real history export enables tests against later listening. Your pasted favourites work now, so you don’t need to request or wait for an export.</p></div>
+    </div></details>
+    <section class="section"><h2>Refine one artist at a time</h2>
+        <p>Search to confirm an artist’s name when lookups are connected, or mark artists you don’t enjoy. You can also add a name directly using the paste box above.</p>
         <form id="pick-form" class="picker" role="search" autocomplete="off"><label for="pick-q" class="small">Artist</label>
           <input id="pick-q" type="search" placeholder="Start typing an artist’s name" enterkeyhint="search" autocomplete="off" autocapitalize="off" spellcheck="false"></form>
         <ul class="pick-results" id="pick-results"></ul>
         <p class="small muted" id="pick-status" role="status"></p>
         <div id="pick-chips" tabindex="-1">${pickChips(picks)}</div>
-        <div class="row build-row"><button class="primary" id="build"></button>
-          <span class="small muted" id="build-hint"></span></div></div></li>
-    </ol>
+    </section>
     ${BROWSER ? `<section class="section note"><h2>Where your data lives</h2>
       <p>Your picks, listening history and ratings are saved ${WHERE}, not on a server. Other devices start empty${IOS ? ", and on an iPhone the Home Screen app and Safari each keep their own copy" : ""}. Clearing this site’s data in the browser settings deletes it.</p>
       ${state.demo ? `<p><a href="./">Leave the demo</a></p>` : `<p>Curious first? <a href="?demo=1">Try it with a simulated listener</a> (nothing is saved).</p>`}</section>` : ""}
@@ -931,6 +1104,7 @@ async function viewSetup() {
   const results = $("#pick-results");
   const pickStatus = $("#pick-status");
   const chipsBox = $("#pick-chips");
+  bindQuickStarter(chipsBox);
   const say = (text) => { if (pickStatus.isConnected) pickStatus.textContent = text; };
   let seq = 0;
   let timer;
@@ -1015,7 +1189,7 @@ async function viewSetup() {
   const dataStatus = $("#data-status");
   const upload = async (files) => {
     if (!files.length) return;
-    if (importing) { toast("An import is already running. Choose these files again when it finishes."); return; }
+    if (importing || quickSaving) { toast("Music is already being saved. Choose these files again when it finishes."); return; }
     importing = true;
     filesInput.disabled = true;
     drop.setAttribute("aria-disabled", "true");
@@ -1069,6 +1243,7 @@ async function viewSetup() {
   $("#clear-data").addEventListener("click", async () => {
     if (!confirm("Delete your picked artists and all imported listening data from Sideband? (Your Spotify account is not affected.)")) return;
     await api("/api/clear", { method: "POST", body: { what: "data" } });
+    store("mf.quickDraft", "");
     toast("Picks and listening data deleted.");
     route();
   });

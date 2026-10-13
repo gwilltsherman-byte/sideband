@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from musicfinder.models import Feedback, LibraryItem, Play, parse_ts
-from musicfinder.normalize import artist_key
+from musicfinder.normalize import artist_key, track_key
 
 # Three files, so that saving one kind of change does not rewrite the others (this matters in the
 # browser, where storage is saved a whole file at a time): listening data, the web-lookup cache, and
@@ -132,6 +132,33 @@ class Store:
             self._db.executemany("INSERT OR IGNORE INTO data.library VALUES (?,?,?,?,?)", rows)
             self._commit()
             return self._db.total_changes - before
+
+    def apply_quick_input(self, items: list[LibraryItem]) -> dict:
+        """Save reviewed preferences atomically, without repeated uploads increasing their weight."""
+        if any(i.kind not in ("picked_artist", "saved_track", "playlist_track") for i in items):
+            raise ValueError("Quick input must contain artist or song preferences")
+        with self._lock:
+            existing = self._db.execute("SELECT rowid, kind, artist, track FROM data.library").fetchall()
+            known = {(k, artist_key(a), track_key(t)) for _, k, a, t in existing}
+            favourites = {artist_key(i.artist) for i in items if i.kind == "picked_artist"}
+            remove = [(rid,) for rid, k, a, _ in existing if k == "picked_dislike" and artist_key(a) in favourites]
+            rows = []
+            for i in items:
+                key = (i.kind, artist_key(i.artist), track_key(i.track))
+                if key in known:
+                    continue
+                known.add(key)
+                rows.append((i.kind, i.artist, i.track or "", i.uri, i.added.isoformat() if i.added else None))
+            if rows or remove:
+                try:
+                    self._db.executemany("DELETE FROM data.library WHERE rowid = ?", remove)
+                    self._db.executemany("INSERT INTO data.library VALUES (?,?,?,?,?)", rows)
+                    self._commit()
+                except Exception:
+                    self._db.rollback()
+                    raise
+            return {"added_library_items": len(rows), "removed_disliked_picks": len(remove),
+                    "changed": bool(rows or remove)}
 
     def library(self) -> list[LibraryItem]:
         with self._lock:

@@ -147,6 +147,23 @@ select {
   border: 1px solid var(--line-strong); border-radius: var(--radius);
   min-height: 44px; padding: 0 var(--s3); max-width: 100%;
 }
+textarea {
+  display: block; width: 100%; resize: vertical; min-height: 150px;
+  font: inherit; line-height: 1.5; color: var(--ink); background: var(--paper-raised);
+  border: 1px solid var(--line-strong); border-radius: var(--radius); padding: var(--s3);
+}
+.quick-starter { border: 1px solid var(--line); border-radius: var(--radius); padding: var(--s5); background: var(--paper-raised); }
+.quick-starter h2 { margin-bottom: var(--s3); }
+.quick-kind { margin: var(--s4) 0; padding: 0; border: none; display: flex; flex-wrap: wrap; gap: var(--s2) var(--s4); }
+.quick-kind legend { font-weight: 500; margin-bottom: var(--s2); }
+.quick-kind label { display: inline-flex; align-items: center; gap: var(--s2); min-height: 44px; }
+.quick-kind input { accent-color: var(--ink); width: 18px; height: 18px; }
+#quick-form > .row { margin-top: var(--s4); }
+#quick-help, #quick-status, #quick-saved { margin-top: var(--s3); }
+.quick-review-list { max-height: 320px; overflow: auto; margin: var(--s3) 0; border-top: 1px solid var(--line); }
+.quick-review-list td { overflow-wrap: anywhere; }
+.quick-notices { padding-left: var(--s5); color: var(--ink-2); font-size: var(--step--1); }
+@media (max-width: 420px) { .quick-starter { padding: var(--s4); } }
 label { font-weight: 500; }
 
 /* ---------- exploration dial ---------- */
