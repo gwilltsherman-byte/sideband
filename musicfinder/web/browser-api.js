@@ -36,6 +36,8 @@ worker.onmessage = (event) => {
     showBoot(`Sideband couldn't start in this browser: ${msg.error}`);
   } else if (msg.type === "job-done") {
     keepAwake(false);
+  } else if (msg.type === "storage-error" || msg.type === "lookup-status") {
+    window.dispatchEvent(new CustomEvent("sideband-status", { detail: msg.error }));
   } else if (msg.type === "lost") {
     showElsewhere();
   }
@@ -94,3 +96,11 @@ document.addEventListener("visibilitychange", () => {
 });
 
 export const isDemo = demo;
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register(new URL('../sw.js', import.meta.url), { scope: new URL('../', import.meta.url).pathname })
+    .catch(() => window.dispatchEvent(new CustomEvent('sideband-status', { detail: 'Offline installation is unavailable. Your saved data still stays on this device.' })));
+}
+document.addEventListener('pointerdown', () => {
+  navigator.storage?.persist?.().catch(() => {});
+}, { once: true });

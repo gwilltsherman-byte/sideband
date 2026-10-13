@@ -6,6 +6,7 @@ const main = $("#main");
 // The hosted  build runs the engine inside the browser instead of talking to a local server.
 const BROWSER = window.MUSICFINDER_MODE === "browser";
 const engine = BROWSER ? await import("./browser-api.js") : null;
+window.addEventListener("sideband-status", event => toast(event.detail, 12000));
 const WHERE = BROWSER ? "in this browser on this device" : "on this computer";
 // iPhone/iPad: a Home Screen web app keeps its own storage, separate from Safari's.
 const IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
@@ -1072,9 +1073,31 @@ async function viewSetup() {
     ${BROWSER ? `<section class="section note"><h2>Where your data lives</h2>
       <p>Your picks, listening history and ratings are saved ${WHERE}, not on a server. Other devices start empty${IOS ? ", and on an iPhone the Home Screen app and Safari each keep their own copy" : ""}. Clearing this site’s data in the browser settings deletes it.</p>
       ${state.demo ? `<p><a href="./">Leave the demo</a></p>` : `<p>Curious first? <a href="?demo=1">Try it with a simulated listener</a> (nothing is saved).</p>`}</section>` : ""}
+    ${!state.demo ? `<section class="section"><h2>Backup and restore</h2>
+      <p>Your picks, ratings and imported listening history stay ${WHERE} when you close the app. Save a backup before changing devices or removing the app.</p>
+      <div class="row"><button id="backup-save">Save a backup</button><label class="drop" for="backup-file">Restore a backup</label>
+      <input id="backup-file" type="file" accept=".json,application/json" hidden></div></section>` : ""}
     <details class="section"><summary>Manage or delete my data</summary>
       <div class="row"><button id="clear-data">Delete my picks and listening data</button><button id="clear-fb">Delete my ratings</button></div></details>`;
 
+  const backup = $("#backup-save");
+  if (backup) backup.addEventListener("click", async () => {
+    try {
+      const data = await api("/api/backup");
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: 'application/json' }));
+      link.download = 'sideband-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+      link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 60000);
+    } catch (error) { toast(error.message, 10000); }
+  });
+  $("#backup-file")?.addEventListener("change", async event => {
+    const file = event.target.files[0]; if (!file) return;
+    if (file.size > 128 * 1024 * 1024) { toast('That backup is too large (maximum 128 MB).'); return; }
+    if (!confirm('Replace the picks, ratings and listening history on this device with this backup? Save a backup of your current data first.')) return;
+    try { await api('/api/restore', { method: 'POST', body: file }); location.reload(); }
+    catch (error) { toast(error.message, 10000); }
+    event.target.value = '';
+  });
   updateBuildControls();
 
   // --- picking

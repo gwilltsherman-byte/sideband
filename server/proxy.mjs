@@ -59,11 +59,12 @@ function lastfmKey() {
   return (process.env.LASTFM_API_KEY || "").trim();
 }
 
-export default async function proxy(req) {
+async function lookup(req) {
   if (req.method !== "GET") return fail(405, "Only GET is allowed", { Allow: "GET" });
   // Browsers label every request with where it came from; refuse other websites' pages.
   const site = req.headers.get("sec-fetch-site");
-  if (site && site !== "same-origin" && site !== "none") {
+  const allowed = process.env.FRONTEND_ORIGIN || new URL(req.url).origin;
+  if (site && site !== "same-origin" && site !== "none" && req.headers.get("origin") !== allowed) {
     return fail(403, "This relay only serves the Sideband site it belongs to");
   }
   const params = new URL(req.url).searchParams;
@@ -99,6 +100,17 @@ export default async function proxy(req) {
   return reply(upstream.status, body, {
     "Content-Type": upstream.headers.get("content-type") || "application/json; charset=utf-8",
   });
+}
+
+export default async function proxy(req) {
+  const origin = req.headers.get('origin');
+  const allowed = process.env.FRONTEND_ORIGIN || new URL(req.url).origin;
+  if (origin && origin !== allowed) return fail(403, 'Origin is not allowed');
+  let response;
+  if (req.method === 'OPTIONS') response = new Response(null, { status: 204, headers: { 'Access-Control-Allow-Methods': 'GET, OPTIONS' } });
+  else response = await lookup(req);
+  if (origin) { response.headers.set('Access-Control-Allow-Origin', origin); response.headers.set('Vary', 'Origin'); }
+  return response;
 }
 
 export const config = { path: "/api/proxy" };

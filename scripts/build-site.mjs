@@ -58,7 +58,7 @@ async function main() {
     await mkdir(path.dirname(path.join(out, "py", rel)), { recursive: true });
     await writeFile(path.join(out, "py", rel), text);
   }
-  for (const f of WEB_FILES) hash.update(await readFile(path.join(web, f)));
+  for (const f of [...WEB_FILES, "sw.js"]) hash.update(await readFile(path.join(web, f)));
   hash.update(await readFile(path.join(web, "index.html")));
   const version = hash.digest("hex").slice(0, 12);
   await writeFile(path.join(out, "py", "manifest.json"), JSON.stringify({ version, files }, null, 1));
@@ -93,6 +93,13 @@ async function main() {
   html = html.replace("</head>", `  ${head}\n</head>`);
   await writeFile(path.join(out, "index.html"), html);
   await writeFile(path.join(out, ".nojekyll"), "");
+  const shell = ["index.html", "py/manifest.json", ...files.map(f => `py/${f}`),
+    ...WEB_FILES.map(f => `static/${f}`), ...PYODIDE_FILES.map(f => `pyodide/${pyodideVersion}/${f}`)];
+  const serviceWorker = (await readFile(path.join(web, "sw.js"), "utf8"))
+    .replace('__VERSION__', `${version}-${pyodideVersion}`)
+    .replace('__SHELL__', JSON.stringify(shell));
+  await writeFile(path.join(out, "sw.js"), serviceWorker);
+
 
   let bytes = 0;
   for (const f of PYODIDE_FILES) bytes += (await stat(path.join(pyodideOut, f))).size;
