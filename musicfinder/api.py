@@ -51,6 +51,9 @@ def dispatch_steps(app: MusicFinder, method: str, path: str, query: dict[str, li
                                          "prepare": app.start_prepare}[name]())
     try:
         if method == "GET":
+            if path == "/api/backup":
+                from musicfinder.backup import export_backup
+                return 200, export_backup(app)
             if path == "/api/state":
                 return 200, app.state()
             if path == "/api/job":
@@ -79,6 +82,9 @@ def dispatch_steps(app: MusicFinder, method: str, path: str, query: dict[str, li
             if path == "/api/picks":
                 return 200, app.picks()
         elif method == "POST":
+            if path == "/api/restore":
+                from musicfinder.backup import restore_backup
+                return 200, restore_backup(app, body)
             if path == "/api/import":
                 return 200, app.import_files([(filename or "upload.json", body)])
             data = json.loads(body.decode("utf-8")) if body else {}

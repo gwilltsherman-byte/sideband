@@ -4,6 +4,23 @@
 on your phone or computer. It uses simulated listening data. For live music
 recommendations, run Sideband on your Mac or in GitHub Codespaces.
 
+## Install the hosted app
+
+Open the hosted app in Safari. On iPhone choose **Share > Add to Home Screen**.
+On a Mac with Safari web apps, choose **File > Add to Dock**. Open that new icon
+before importing your listening history. The installed app keeps its own data,
+which stays saved after you close it. Once the first download finishes, saved
+data can open offline; new music lookups need an internet connection.
+
+In **Setup > Backup and restore**, save a backup before changing devices or
+clearing app data. Restore that file in the installed app on the other device.
+The backup contains your picks, ratings, listening history and music map, but
+not credentials. Demo mode uses simulated data and does not save personal data.
+
+The published GitHub Pages address currently provides a demo. Live hosted
+lookups need the Netlify configuration described below; a running Mac or
+codespace is not required by that hosted setup.
+
 ## First installation on Mac
 
 Install Python 3.10 or later. Apple's bundled Python may be older, so check
@@ -82,3 +99,12 @@ opens for local imports, your taste profile and a previously saved music map.
 It shows a connection notice and disables new lookups. Reload after the service
 returns; your history is preserved.
 
+
+## Permanent hosting with Netlify
+
+This repository includes `netlify.toml`. Connect it to Netlify and use its build
+configuration. The published `site` folder and `/api/proxy` function run together.
+Listening data stays on each user's device; the function only looks up public
+music information. If you keep the frontend on GitHub Pages, set the Netlify
+`FRONTEND_ORIGIN` environment variable to your Pages origin, then set
+`SIDEBAND_RELAY_URL` in the Pages workflow to the Netlify `/api/proxy` URL.

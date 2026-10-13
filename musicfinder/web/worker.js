@@ -52,11 +52,11 @@ async function save() {
   if (!dirty || lost) return;
   dirty = false;
   saving = syncfs(false)
-    .catch((err) => { dirty = true; console.warn("musicfinder: could not save", err); })
+    .catch((err) => { dirty = true; post({ type: "storage-error", error: "Your changes could not be saved on this device. Save a backup from Setup before closing the app." }); throw err; })
     .finally(() => { saving = null; });
   return saving;
 }
-setInterval(save, 20_000);
+setInterval(() => { save().catch(() => {}); }, 20_000);
 
 function stepAside() {
   lost = true;
@@ -106,7 +106,10 @@ async function boot() {
   }).then(async r => {
     if (!r.ok) throw new Error("Music lookup service unavailable");
     return { ...(await r.json()), available: true };
-  }).catch(() => ({ available: false, lastfm: false }));
+  }) .catch(() => {
+    post({ type: "lookup-status", error: "Live music lookups are unavailable. Your saved data still opens; new lookups need an internet connection and the site's lookup service." });
+    return { available: false, lastfm: false };
+  });
   clearTimeout(timer);
   const ownership = becomeOwner();
   const { loadPyodide } = await import(`${PYODIDE}pyodide.mjs`);
@@ -208,7 +211,7 @@ async function runJob(task) {
     console.error("musicfinder job failed", err);
   } finally {
     task.destroy();
-    await save();
+    await save().catch(() => {});
     post({ type: "job-done" });
   }
 }
@@ -218,7 +221,7 @@ self.onmessage = async (event) => {
   const msg = event.data || {};
   if (msg.type === "save") {
     await ready.catch(() => {});
-    await save();
+    await save().catch(() => {});
     return;
   }
   if (msg.type !== "request") return;
@@ -239,8 +242,8 @@ self.onmessage = async (event) => {
       task.destroy();
     }
     noteWrites();
+    if (msg.method === "POST") await save();
     post({ type: "response", id: msg.id, status: out.status, payload: out.payload });
-    if (msg.method === "POST") save();
     const job = backend.take_job();
     if (job) runJob(job);
   } catch (err) {
