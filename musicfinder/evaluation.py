@@ -10,17 +10,17 @@ Protocol (time-based holdout, so the model never sees the future it is graded on
    *rejected* if every play was skipped in the first 30 seconds.
 2. **Validation.** Build the taste profile from plays before ``t_val`` only, crawl the similarity
    graph, and score candidates under a grid of hyper-parameters (memory half-life, seed weighting,
-   random-walk restart). The best setting is chosen, then the feature weights are re-fitted to you by
-   regularised logistic regression (prior = the default weights).
+   random-walk restart). Settings only change with sufficient observed outcomes and a validation
+   improvement. Regularised feature fitting uses actual adopted/rejected artists, and must beat the
+   default on a separate subset of validation artists before it is accepted.
 3. **Test.** Re-train on everything before ``t_test`` with the chosen setting and grade the
    predictions on the final window, which played no part in any choice. Reported with 95% bootstrap
    confidence intervals, next to baselines (popularity, plain similar-artists, random).
 
-Metrics: Recall@K / Precision@K / NDCG@K for discovery ("of the artists you went on to love, how
-many were in our top K?"), mean percentile rank (Hu et al. 2008; 50% = random), and *preference
-AUC*: given an artist you liked and one you rejected after hearing both, how often does musicfinder
-score the liked one higher? That last one is the cleanest measure of "predicting what you'd like",
-because both artists were actually heard.
+Metrics grade the diversified lists shown to users. Missing discoveries count against recall and
+mean percentile rank. Preference AUC compares observed adopted/rejected artists already present
+in the prediction pool; its coverage is reported, and future outcome identities never expand that
+pool or the graph. Repeats/skips remain implicit preference proxies, not ratings or causal evidence.
 """
 
 from __future__ import annotations
@@ -58,11 +58,15 @@ class EvalConfig:
     seed_powers: tuple[float, ...] = (0.5, 1.0)
     alphas: tuple[float, ...] = (0.2, 0.4)
     bootstrap: int = 600
-    unlabeled_weight: float = 0.3
+    # Retained for settings compatibility. Unheard artists are never fitted as dislikes.
+    unlabeled_weight: float = 0.0
     max_unlabeled: int = 1500
     prior_precision: float = 2.0
     min_positives: int = 5
     min_span_days: int = 90
+    min_validation_class: int = 10
+    min_selection_gain: float = 0.02
+    selection_bootstrap: int = 200
 
 
 @dataclass(frozen=True)
@@ -91,27 +95,33 @@ class Truth:
 
 def ground_truth(plays: list[Play], cutoff: datetime, end: datetime, cfg: EvalConfig = EvalConfig(),
                  params: TasteParams = TasteParams()) -> Truth:
-    known: set[str] = set()
+    # First determine what was already known. Input order must not let a later row masquerade
+    # as a new discovery merely because its older playback appeared further down an export.
+    known = {p.artist_key for p in plays if p.ts < cutoff and
+             not (play_engagement(p, None, params)[1] == "neutral" and p.ms_played < params.noise_ms)}
     stats: dict[str, dict] = {}
     for p in plays:
         _, outcome = play_engagement(p, None, params)
         if outcome == "neutral" and p.ms_played < params.noise_ms:
             continue
         k = p.artist_key
-        if p.ts < cutoff:
-            known.add(k)
-        elif p.ts < end and k not in known:
-            st = stats.setdefault(k, {"name": p.artist, "streams": 0, "skips": 0, "days": set()})
+        if cutoff <= p.ts < end and k not in known:
+            st = stats.setdefault(k, {"name": p.artist, "streams": 0, "skips": 0, "neutral": 0, "days": set()})
             if outcome == "stream":
-                st["streams"] += 1
-                st["days"].add(p.ts.date())
+                if p.skipped is True or p.reason_end == "fwdbtn":
+                    st["neutral"] += 1  # a qualifying late skip is not a successful adoption play
+                else:
+                    st["streams"] += 1
+                    st["days"].add(p.ts.date())
             elif outcome == "early_skip":
                 st["skips"] += 1
+            else:
+                st["neutral"] += 1
     truth = Truth()
     for k, st in stats.items():
         if st["streams"] >= cfg.min_streams and len(st["days"]) >= cfg.min_days:
             truth.adopted[k] = st["name"]
-        elif st["streams"] == 0 and st["skips"] >= 1:
+        elif st["streams"] == 0 and st["neutral"] == 0 and st["skips"] >= 1:
             truth.rejected[k] = st["name"]
     return truth
 
@@ -127,7 +137,12 @@ def _ranking_metrics(ranked: list[str], relevant: set[str], ks: tuple[int, ...],
     for k in (50,):
         ci = bootstrap_ci(lambda s, k=k: sum(1 for r in s if pos.get(r, 10**9) < k) / len(s), items, n_boot, seed=seed)
         out[f"recall@{k}_ci"] = ci
-    out["mean_percentile_rank"] = mean_percentile_rank(ranked, relevant)
+    # Conditional rank alone rewards a tiny pool that misses most discoveries. Missing artists
+    # count as the worst rank when choosing settings; keep the conditional statistic visible too.
+    out["retrieved_mean_percentile_rank"] = mean_percentile_rank(ranked, relevant)
+    out["mean_percentile_rank"] = (sum(100.0 * pos[r] / max(1, len(ranked) - 1)
+                                          if r in pos else 100.0 for r in relevant) / len(relevant)
+                                    if relevant else None)
     return out
 
 
@@ -136,9 +151,35 @@ def _expected_random(pool: int, relevant_in_pool: int, n_relevant: int, ks: tupl
     for k in ks:
         frac = min(1.0, k / pool) if pool else 0.0
         out[f"recall@{k}"] = relevant_in_pool * frac / n_relevant if n_relevant else 0.0
-        out[f"precision@{k}"] = relevant_in_pool / pool if pool else 0.0
-    out["mean_percentile_rank"] = 50.0
+        out[f"precision@{k}"] = relevant_in_pool * frac / k if k > 0 else 0.0
+        dcg = sum(1.0 / math.log2(i + 2) for i in range(min(k, pool)))
+        ideal = sum(1.0 / math.log2(i + 2) for i in range(min(k, n_relevant)))
+        out[f"ndcg@{k}"] = dcg * relevant_in_pool / pool / ideal if pool and ideal else 0.0
+    average_rank = 0.5 if pool > 1 else 0.0
+    out["mean_percentile_rank"] = (100.0 * (n_relevant - (1 - average_rank) * relevant_in_pool) / n_relevant
+                                    if n_relevant else None)
     return out
+
+
+def _display_ranking(pool, kg: KnowledgeGraph, cfg: EvalConfig, sp: ScoringParams, depth: int = 50) -> list[str]:
+    """Grade the same diversity re-ranking users get, at each reported recommendation depth."""
+    shown = diversify(pool, kg, depth, min(0.8, sp.diversity + 0.45 * sp.exploration))
+    head = [c.key for c in shown]
+    seen = set(head)
+    return head + [c.key for c in pool.candidates if c.key not in seen]
+
+
+def _model_metrics(pool, kg: KnowledgeGraph, relevant: set[str], cfg: EvalConfig,
+                   sp: ScoringParams, n_boot: int) -> dict:
+    # MMR's candidate head depends on list length, just as it does in the application. Generate
+    # each K using its actual list length, instead of grading the prefix of a different-sized list.
+    m = _ranking_metrics(_display_ranking(pool, kg, cfg, sp), relevant, cfg.ks, n_boot, 7)
+    for k in cfg.ks:
+        ranked = _display_ranking(pool, kg, cfg, sp, k)
+        m[f"recall@{k}"] = recall_at_k(ranked, relevant, k)
+        m[f"precision@{k}"] = precision_at_k(ranked, relevant, k)
+        m[f"ndcg@{k}"] = ndcg_at_k(ranked, relevant, k)
+    return m
 
 
 def _objective(m: dict) -> float:
@@ -176,7 +217,6 @@ def _run_phase_steps(plays: list[Play], cutoff: datetime, end: datetime, knowled
     wrap = lambda step, d, t: progress(f"{label}: {step}", d, t)  # noqa: E731
     kg = yield from crawl_steps(main, knowledge, crawl_cfg, wrap, extra_seed_profiles=others)
 
-    rng = random.Random(1)
     results: list[tuple[ModelConfig, dict]] = []
     rows: dict[ModelConfig, list] = {}
     pools = {}
@@ -184,23 +224,20 @@ def _run_phase_steps(plays: list[Play], cutoff: datetime, end: datetime, knowled
         progress(f"{label}: scoring settings", i + 1, len(configs))
         pool = score_pool(profiles[mc.taste], kg, mc.scoring())
         pools[mc] = pool
-        ranked = pool.ranked_keys()
-        m = _ranking_metrics(ranked, adopted, cfg.ks, cfg.bootstrap if label.lower() == "test" else 0, seed=7)
+        ranked = _display_ranking(pool, kg, cfg, mc.scoring())
+        m = _model_metrics(pool, kg, adopted, cfg, mc.scoring(),
+                           cfg.bootstrap if label.lower() == "test" else 0)
         m["coverage"] = len(adopted & set(ranked)) / len(adopted) if adopted else None
         results.append((mc, m))
         if collect_rows:
             data = []
-            unl = []
             for c in pool.candidates:
                 xv = [c.z[f] for f in FEATURES]
                 if c.key in adopted:
                     data.append((xv, 1, 1.0))
                 elif c.key in truth.rejected:
                     data.append((xv, 0, 1.0))
-                else:
-                    unl.append((xv, 0, cfg.unlabeled_weight))
-            rng.shuffle(unl)
-            rows[mc] = data + unl[: cfg.max_unlabeled]
+            rows[mc] = data
 
     # baselines on the main configuration's pool
     base_pool = pools[configs[0]]
@@ -214,7 +251,7 @@ def _run_phase_steps(plays: list[Play], cutoff: datetime, end: datetime, knowled
         "random": _expected_random(len(ranked0), in_pool, len(adopted), cfg.ks),
     }
 
-    # tradeoff between accuracy and exploration (on the first config, before augmentation)
+    # Tradeoff between accuracy and exploration on the first configuration's history-built graph.
     if tradeoff:
         mc = configs[0]
         curve = []
@@ -234,17 +271,18 @@ def _run_phase_steps(plays: list[Play], cutoff: datetime, end: datetime, knowled
             })
         baselines["exploration_tradeoff"] = curve
 
-    # Preference AUC: make sure every artist heard in the window is in the graph, then score them all.
-    truth_names = list(truth.adopted.values()) + list(truth.rejected.values())
-    yield from crawl_steps(main, knowledge, crawl_cfg, wrap, extra_expand=truth_names, kg=kg)
-    include = [k for k in list(truth.adopted) + list(truth.rejected) if k in kg.adj]
+    # Only grade the original prediction pool. Looking up or including held-out artists here
+    # would change PageRank, IDF or standardisation using identities learned from future outcomes.
     for (mc, m) in results:
-        pool = score_pool(profiles[mc.taste], kg, mc.scoring(), include=include)
+        pool = pools[mc]
         scores = {c.key: c.score for c in pool.candidates}
         pos = [scores[k] for k in truth.adopted if k in scores]
         neg = [scores[k] for k in truth.rejected if k in scores]
         m["auc"] = auc(pos, neg)
         m["auc_n"] = (len(pos), len(neg))
+        n_heard = len(truth.adopted) + len(truth.rejected)
+        m["preference_coverage"] = ((len(pos) + len(neg)) / n_heard if n_heard else None)
+        m["preference_available"] = (len(pos) + len(neg), n_heard)
         if label.lower() == "test":
             m["auc_ci"] = auc_ci(pos, neg, cfg.bootstrap)
         if mc is configs[0]:
@@ -265,15 +303,95 @@ def _normalise_weights(w: dict[str, float]) -> dict[str, float]:
     return {k: v * target / cur for k, v in w.items()}
 
 
-def fit_weights(rows: list[tuple[list[float], int, float]], cfg: EvalConfig) -> dict[str, float] | None:
-    if sum(y for _, y, _ in rows) < cfg.min_positives:
+def _paired_gain_ci(positive: list[tuple[float, float]], negative: list[tuple[float, float]],
+                    n: int, rank_gains: list[float] | None = None) -> tuple[float, float] | None:
+    """Resample the same held-out artists for both models, so improvements have an error bar."""
+    if min(len(positive), len(negative)) < 2 or n <= 0:
         return None
-    x = [r[0] for r in rows]
-    y = [r[1] for r in rows]
-    sw = [r[2] for r in rows]
-    coef, _ = fit_logistic(x, y, sw, prior_mean=[DEFAULT_WEIGHTS[f] for f in FEATURES],
-                           prior_precision=cfg.prior_precision)
-    return _normalise_weights(dict(zip(FEATURES, coef)))
+    rng = random.Random(29)
+    gains = []
+    for _ in range(n):
+        p = [positive[rng.randrange(len(positive))] for _ in positive]
+        q = [negative[rng.randrange(len(negative))] for _ in negative]
+        delta = auc([x for x, _ in p], [x for x, _ in q]) - auc([y for _, y in p], [y for _, y in q])
+        if rank_gains:
+            ranking = sum(rank_gains[rng.randrange(len(rank_gains))] for _ in rank_gains) / len(rank_gains)
+            delta = (delta + ranking) / 2
+        gains.append(delta)
+    gains.sort()
+    return gains[int(0.025 * n)], gains[min(n - 1, int(0.975 * n))]
+
+
+def _settings_gain_ci(phase: PhaseOutput, candidate: ModelConfig, default: ModelConfig,
+                      cfg: EvalConfig) -> tuple[float, float] | None:
+    proposed = score_pool(phase.profiles[candidate.taste], phase.kg, candidate.scoring())
+    base = score_pool(phase.profiles[default.taste], phase.kg, default.scoring())
+    a, b = proposed.by_key(), base.by_key()
+    positive = [(a[k].score, b[k].score) for k in phase.truth.adopted if k in a and k in b]
+    negative = [(a[k].score, b[k].score) for k in phase.truth.rejected if k in a and k in b]
+    arank = {k: i / max(1, len(a) - 1) for i, k in enumerate(_display_ranking(proposed, phase.kg, cfg, candidate.scoring()))}
+    brank = {k: i / max(1, len(b) - 1) for i, k in enumerate(_display_ranking(base, phase.kg, cfg, default.scoring()))}
+    gains = [brank.get(k, 1.0) - arank.get(k, 1.0) for k in phase.truth.adopted]
+    return _paired_gain_ci(positive, negative, cfg.selection_bootstrap, gains)
+
+
+def _fit_weights(rows: list[tuple[list[float], int, float]], cfg: EvalConfig) -> tuple[dict[str, float] | None, dict]:
+    # Only unit-weight rows are observed outcomes. Legacy callers' low-confidence, unheard
+    # negatives must not turn a large catalog into thousands of invented dislikes.
+    observed = [(x, y, sw) for x, y, sw in rows if sw >= 1.0 and y in (0, 1) and
+                len(x) == len(FEATURES) and math.isfinite(sw) and all(math.isfinite(v) for v in x)]
+    positive = [r for r in observed if r[1] == 1]
+    negative = [r for r in observed if r[1] == 0]
+    evidence = {"positives": len(positive), "negatives": len(negative), "accepted": False,
+                "holdout_gain": None}
+    minimum = max(10, cfg.min_positives, cfg.min_validation_class)
+    if min(len(positive), len(negative)) < minimum:
+        evidence["reason"] = "Not enough observed outcomes in both classes to fit weights safely."
+        return None, evidence
+
+    def fitted(data):
+        n_small = min(sum(y for _, y, _ in data), sum(1 - y for _, y, _ in data))
+        precision = cfg.prior_precision * max(1.0, 40.0 / max(1, n_small))
+        coef, _ = fit_logistic([r[0] for r in data], [r[1] for r in data], [r[2] for r in data],
+                               prior_mean=[DEFAULT_WEIGHTS[f] for f in FEATURES], prior_precision=precision)
+        weights = dict(zip(FEATURES, coef))
+        # Similarity to rejected artists must never become a positive signal because of a noisy
+        # small sample, and similarity/support evidence must retain its intended direction.
+        weights["neg"] = min(0.0, weights["neg"])
+        for f in ("cf", "cf_recent", "ppr", "support", "tag", "agree"):
+            weights[f] = max(0.0, weights[f])
+        return _normalise_weights(weights)
+
+    rng = random.Random(19)
+    rng.shuffle(positive)
+    rng.shuffle(negative)
+    p_hold, n_hold = max(5, len(positive) // 3), max(5, len(negative) // 3)
+    holdout = positive[:p_hold] + negative[:n_hold]
+    training = positive[p_hold:] + negative[n_hold:]
+    proposed = fitted(training)
+
+    def scores(weights):
+        return [sum(weights[f] * x[i] for i, f in enumerate(FEATURES)) for x, _, _ in holdout]
+
+    bs, ps = scores(DEFAULT_WEIGHTS), scores(proposed)
+    base_auc = auc(bs[:p_hold], bs[p_hold:])
+    proposed_auc = auc(ps[:p_hold], ps[p_hold:])
+    gain = proposed_auc - base_auc
+    gain_ci = _paired_gain_ci(list(zip(ps[:p_hold], bs[:p_hold])),
+                             list(zip(ps[p_hold:], bs[p_hold:])), cfg.selection_bootstrap)
+    evidence.update({"holdout_positives": p_hold, "holdout_negatives": n_hold,
+                     "default_holdout_auc": base_auc, "fitted_holdout_auc": proposed_auc,
+                     "holdout_gain": round(gain, 4), "holdout_gain_ci95": gain_ci})
+    if gain < cfg.min_selection_gain or gain_ci is None or gain_ci[0] <= 0:
+        evidence["reason"] = "Learned weights did not improve on defaults in withheld validation ratings."
+        return None, evidence
+    evidence["accepted"] = True
+    return fitted(observed), evidence
+
+
+def fit_weights(rows: list[tuple[list[float], int, float]], cfg: EvalConfig) -> dict[str, float] | None:
+    """Fit only if observed outcomes demonstrate a benefit on separate validation artists."""
+    return _fit_weights(rows, cfg)[0]
 
 
 def _clean(m: dict) -> dict:
@@ -320,8 +438,17 @@ def backtest_steps(plays: list[Play], knowledge: Knowledge, cfg: EvalConfig = Ev
     val = yield from _run_phase_steps(plays, t_val, t_test, knowledge, grid, cfg, crawl_cfg, progress, "Validation", collect_rows=True)
     n_val_pos = len(val.truth.adopted)
     ranked = sorted(val.results, key=lambda r: -_objective(r[1]))
-    best_cfg, best_val = ranked[0]
-    learned = fit_weights(val.rows.get(best_cfg, []), cfg)
+    candidate_cfg, candidate_val = ranked[0]
+    default_val = next(m for mc, m in val.results if mc == default)
+    val_classes = candidate_val.get("auc_n", (0, 0))
+    sufficient_validation = min(val_classes) >= max(10, cfg.min_positives, cfg.min_validation_class)
+    setting_gain = _objective(candidate_val) - _objective(default_val)
+    setting_ci = (_settings_gain_ci(val, candidate_cfg, default, cfg)
+                  if sufficient_validation and candidate_cfg != default else None)
+    settings_accepted = (sufficient_validation and candidate_cfg != default and
+                         setting_gain >= cfg.min_selection_gain and setting_ci is not None and setting_ci[0] > 0)
+    best_cfg = candidate_cfg if settings_accepted else default
+    learned, weight_evidence = _fit_weights(val.rows.get(best_cfg, []), cfg)
     tuned = ModelConfig(best_cfg.taste, best_cfg.alpha,
                         tuple((f, learned[f]) for f in FEATURES)) if learned else best_cfg
 
@@ -349,7 +476,21 @@ def backtest_steps(plays: list[Play], knowledge: Knowledge, cfg: EvalConfig = Ev
             "examples_adopted": sorted(test.truth.adopted.values())[:12],
         },
         "chosen": chosen.describe(),
-        "chosen_is_personalised": chosen is tuned and learned is not None,
+        "chosen_is_personalised": chosen != default,
+        "selection": {
+            "validated": settings_accepted or learned is not None,
+            "personalised": chosen != default,
+            "settings_accepted": settings_accepted,
+            "setting_gain": round(setting_gain, 4),
+            "setting_gain_ci95": setting_ci,
+            "validation_covered_adopted": val_classes[0],
+            "validation_covered_rejected": val_classes[1],
+            "min_class": max(10, cfg.min_positives, cfg.min_validation_class),
+            "weights": weight_evidence,
+            "reason": ("Changed settings passed validation checks; the final test was not used to choose."
+                       if settings_accepted or learned is not None else
+                       "Kept defaults because validation did not support a reliable improvement."),
+        },
         "model": _clean(chosen_m),
         "default_model": _clean(default_m),
         "baselines": {k: (_clean(v) if isinstance(v, dict) else v) for k, v in test.baselines.items()},
@@ -359,6 +500,12 @@ def backtest_steps(plays: list[Play], knowledge: Knowledge, cfg: EvalConfig = Ev
             for mc, m in ranked[:8]
         ],
         "graph": {"nodes": len(test.kg.names), "expanded": len(test.kg.expanded)},
+        "limitations": [
+            "Listening repeats and skips are evidence of preference, not direct ratings.",
+            "The artist catalog and similarity data are current, not historical snapshots.",
+            "Preference accuracy only covers artists reachable in the history-built graph.",
+            "Confidence intervals describe this window's artists, not certainty about future listening.",
+        ],
     }
     report["summary"] = _summarise(report, n_pos, chosen_m, pop)
     return report
@@ -376,8 +523,8 @@ def _summarise(report: dict, n_pos: int, m: dict, pop: dict) -> list[str]:
                 "cannot be measured yet."]
     hits = round(m.get("recall@50", 0) * n_pos)
     lines.append(
-        f"In the last {days} days you started loving {n_pos} artists you had never played before. Using only "
-        f"your history from before that window, musicfinder’s top 50 already contained {hits} of them "
+        f"In the last {days} days you returned to {n_pos} new artists across multiple days. Using only "
+        f"your history from before that window, Sideband’s diversified top 50 contained {hits} of them "
         f"(recall {_pct(m.get('recall@50'))}" + (
             f", 95% CI {_pct(m['recall@50_ci'][0])}–{_pct(m['recall@50_ci'][1])})." if m.get("recall@50_ci") else ").")
     )
@@ -386,7 +533,7 @@ def _summarise(report: dict, n_pos: int, m: dict, pop: dict) -> list[str]:
     line = (f"For comparison, simply recommending the most popular artists in the same neighbourhood would "
             f"have found {round(pr * n_pos)} (recall {_pct(pr)})")
     if pr > 0 and mr >= pr:
-        line += f" — musicfinder found {mr / pr:.1f}× as many."
+        line += f" — Sideband found {mr / pr:.1f}× as many."
     elif mr < pr:
         line += " — the popularity baseline did better on this window, so treat these results with caution."
     else:
@@ -396,14 +543,14 @@ def _summarise(report: dict, n_pos: int, m: dict, pop: dict) -> list[str]:
         a, (npos, nneg) = m["auc"], m.get("auc_n", (0, 0))
         ci = m.get("auc_ci")
         lines.append(
-            f"Preference accuracy: shown a pair of new artists you actually heard — one you went on to love, "
-            f"one you skipped — musicfinder ranks the loved one higher {_pct(a)} of the time"
+            f"Preference accuracy within the mapped artists: shown one new artist you returned to and "
+            f"one you consistently skipped, Sideband ranks the repeated one higher {_pct(a)} of the time"
             + (f" (95% CI {_pct(ci[0])}–{_pct(ci[1])})" if ci else "")
-            + f"; guessing would be 50%. Based on {npos} loved vs {nneg} rejected artists."
+            + f"; guessing would be 50%. Based on {npos} adopted vs {nneg} rejected artists."
         )
     cov = m.get("coverage")
     if cov is not None and cov < 1:
-        lines.append(f"{_pct(1 - cov)} of the artists you adopted were not reachable from your taste graph at all "
-                     "— a hard ceiling for any similarity-based recommender (they usually come from friends, "
-                     "films, or editorial playlists).")
+        lines.append(f"{_pct(1 - cov)} of the artists you adopted were absent from the candidate pool. "
+                     "They count as missed discoveries; the test cannot say how you found them.")
+    lines.append(report["selection"]["reason"])
     return lines

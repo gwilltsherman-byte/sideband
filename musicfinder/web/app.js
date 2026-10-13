@@ -1,4 +1,5 @@
 // Sideband single-page UI. Plain ES module, no build step.
+import { explorationChoice, batchChoice, nextRecommendationAction, latestRequest } from "./ui-state.js";
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const main = $("#main");
@@ -11,6 +12,7 @@ const IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform ==
 const STANDALONE = (window.matchMedia && matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true;
 const player = $("#player");
 let state = null;
+let importing = false;
 
 const FEATURE_NAMES = {
   cf: "Similar to artists you play a lot",
@@ -92,16 +94,18 @@ document.addEventListener("pointerout", (e) => { if (e.target.closest("[data-tip
 async function refreshState() {
   state = await api("/api/state");
   $("#demo-strip").hidden = !state.demo;
+  $("#service-strip").hidden = state.lookup_available !== false;
   if (state.job.running) watchJob();
   return state;
 }
 
-const JOB_LABEL = { build: "Building your music map", evaluate: "Testing accuracy on your own history" };
+const JOB_LABEL = { build: "Building your music map", evaluate: "Testing accuracy on your own history", prepare: "Improving your recommendations" };
 let polling = false;
 async function watchJob() {
   if (polling) return;
   polling = true;
   const strip = $("#job-strip");
+  let failed = false;
   try {
     for (;;) {
       const job = await api("/api/job");
@@ -114,13 +118,18 @@ async function watchJob() {
         continue;
       }
       if (job.error) toast(`${JOB_LABEL[job.name] || "Job"} failed: ${job.error}`, 9000);
-      else if (job.name) toast(job.name === "evaluate" ? "Accuracy test finished." : "Your music map is ready.");
+      else if (job.name) toast(job.name === "evaluate" ? "Accuracy test finished." : "Your recommendations are ready.");
       break;
     }
+  } catch (err) {
+    failed = true;
+    toast(`Couldn’t check progress: ${err.message}. Your work may still be running.`, 9000);
   } finally {
     polling = false;
     strip.hidden = true;
+    if (engine) engine.keepAwake(false);
   }
+  if (failed) return; // a later navigation can retry; do not loop on a broken progress endpoint
   if ($("#pick-q")) {
     // On Setup someone may be typing: refresh only the build button, not the whole view.
     await refreshState().catch(() => {});
@@ -132,6 +141,10 @@ async function watchJob() {
 
 // Start a background job; returns whether it started (errors are shown, not thrown).
 async function startJob(path) {
+  if (state.lookup_available === false) {
+    toast("New music lookups need a connected service. Your imports and saved taste still work here.", 7000);
+    return false;
+  }
   if (engine) engine.keepAwake(true);
   let res;
   try {
@@ -149,15 +162,22 @@ async function startJob(path) {
 // A button that starts a job: disabled while starting, then onStarted() (by default, redraw the view).
 function jobButton(btn, path, onStarted = () => route()) {
   if (!btn) return;
+  const canOpen = () => path === "/api/prepare" && state.graph_ready && ["current", "history", "more_history"].includes(nextRecommendationAction(state));
+  if (state.lookup_available === false && !canOpen()) btn.disabled = true;
   btn.addEventListener("click", async () => {
+    if (canOpen()) {
+      onStarted();
+      return;
+    }
+    const mine = routeSeq;
     btn.disabled = true;
-    if (await startJob(path)) onStarted();
+    if (await startJob(path)) { if (mine === routeSeq && btn.isConnected) onStarted(); }
     else btn.disabled = false;
   });
 }
 
 // Something to build from: picked favourites or an imported history.
-const canBuild = () => Boolean(state.plays || (state.picks && state.picks.loved));
+const canBuild = () => Boolean(state.has_data || state.plays || (state.picks && state.picks.loved));
 
 // ---------------------------------------------------------------- routing
 const views = { "for-you": viewForYou, songs: viewSongs, explore: viewExplore, taste: viewTaste, accuracy: viewAccuracy, setup: viewSetup };
@@ -198,15 +218,15 @@ async function route() {
 window.addEventListener("hashchange", () => { route(); main.focus({ preventScroll: true }); });
 
 function renderBuildPrompt(reason) {
-  const running = state.job.running && state.job.name === "build";
+  const running = state.job.running && ["build", "prepare"].includes(state.job.name);
   main.innerHTML = `
     <div class="empty">
       <h2>${running ? "Building your music map…" : "One more step: build your music map"}</h2>
       <p>${running ? "This reads similar-artist data around your favourites. The first run takes a few minutes; later runs come from the cache." : esc(reason || "")}</p>
       ${running ? "" : `<p>Sideband will look up artists similar to your favourites in public music data (${sourceNames()}), then rank every unfamiliar artist it finds.</p>
-      <button class="primary" id="build-now">Build my music map</button>`}
+      <button class="primary" id="build-now">${state.plays ? "Use my history to find music" : "Build my music map"}</button>`}
     </div>`;
-  jobButton($("#build-now"), "/api/build");
+  jobButton($("#build-now"), "/api/prepare");
 }
 
 function needsGraph() {
@@ -220,10 +240,11 @@ const sourceNames = () => listJoin([...(state.settings.lastfm ? ["Last.fm"] : []
 // Picks or history changed since the map was built: offer to bring the recommendations up to date.
 function staleStrip() {
   if (state.graph_ready || state.job.running) return;
+  if ($("#prepare-for-you")) return; // the readiness card already supplies this action
   const note = document.createElement("div");
   note.className = "note stale";
   note.innerHTML = `<p>Your picks or listening data changed since these were worked out. <button type="button" class="primary">Update my recommendations</button></p>`;
-  jobButton(note.querySelector("button"), "/api/build", () => note.remove());
+  jobButton(note.querySelector("button"), "/api/prepare", () => note.remove());
   main.prepend(note);
 }
 
@@ -307,7 +328,7 @@ function recRow(r, i, scale, extraCtx = {}) {
   const because = r.because?.length ? `Because you play ${listJoin(r.because.slice(0, 3).map((n) => `<b>${esc(n)}</b>`))}` : "Reached through your wider taste network";
   const shared = r.shared_tags?.length ? `; shares ${listJoin(r.shared_tags.map(esc))} with your listening.` : ".";
   const prob = r.like_probability != null
-    ? `<div class="prob">≈${Math.round(r.like_probability * 100)}% chance you’ll like it</div>` : "";
+    ? `<div class="prob" title="An estimate fitted to your own ratings; not independently validated">≈${Math.round(r.like_probability * 100)}% provisional like estimate</div>` : "";
   const truth = r.true_like_probability != null
     ? `<span class="truth-chip">Simulation’s true like-probability: ${Math.round(r.true_like_probability * 100)}%</span>` : "";
   const ctx = { ...(r.context || {}), ...extraCtx };
@@ -321,16 +342,16 @@ function recRow(r, i, scale, extraCtx = {}) {
       ${meter(r, scale)}
       ${truth}
       <div class="rec-actions">
-        <button data-act="play" data-label="Play a preview">Play a preview</button>
+        <button data-act="play" data-label="Play a preview" aria-label="Play a preview of ${esc(r.name)}">Play a preview</button>
         <a class="button" href="${spotifyUrl(r.name)}" target="_blank" rel="noopener">Open in Spotify ↗</a>
-        <button data-act="like">Like</button>
-        <button data-act="dislike">Not for me</button>
-        <button data-act="known" class="quiet">Already know them</button>
+        <button data-act="like" aria-label="Like ${esc(r.name)}" aria-pressed="false">Like</button>
+        <button data-act="dislike" aria-label="Not for me: ${esc(r.name)}" aria-pressed="false">Not for me</button>
+        <button data-act="known" class="quiet" aria-label="Already know ${esc(r.name)}" aria-pressed="false">Already know them</button>
       </div>
-      <div class="rec-state" aria-live="polite"></div>
+      <div class="rec-state" role="status"><span></span> <button data-act="undo" class="quiet" hidden aria-label="Undo rating for ${esc(r.name)}">Undo</button></div>
     </div>
     <div class="rec-side">
-      <div class="sticker" data-tip="Match: scores higher than ${Math.floor(r.match)}% of the unfamiliar artists considered for you"><b>${Math.floor(r.match)}</b><span>match</span></div>
+      <div class="sticker" title="Scores higher than ${Math.floor(r.match)}% of the unfamiliar artists considered; this is not a probability" data-tip="Scores higher than ${Math.floor(r.match)}% of the unfamiliar artists considered; this is not a probability"><b>${Math.floor(r.match)}</b><span>percentile</span></div>
       ${prob}
     </div>
   </li>`;
@@ -344,21 +365,35 @@ main.addEventListener("click", async (e) => {
   const act = btn.dataset.act;
   if (act === "play") return playPreview(btn, row.dataset.artist, row.dataset.track);
   if (act === "tag") return exploreTag(btn.dataset.tag);
-  if (!["like", "dislike", "known"].includes(act) || !row) return;
+  if (!["like", "dislike", "known", "undo"].includes(act) || !row || row.dataset.saving) return;
   const ctx = JSON.parse(row.dataset.ctx || "{}");
+  const buttons = row.querySelectorAll("button[data-act=like],button[data-act=dislike],button[data-act=known],button[data-act=undo]");
+  const message = row.querySelector(".rec-state span");
+  const previousMessage = message.textContent;
+  message.textContent = act === "undo" ? "Removing your rating…" : "Saving your rating…";
+  row.dataset.saving = "1";
+  buttons.forEach((b) => { b.disabled = true; });
   try {
-    const stats = await api("/api/feedback", { method: "POST", body: { artist: row.dataset.artist, verdict: act, context: ctx } });
+    const stats = await api("/api/feedback", { method: "POST", body: { artist: row.dataset.artist, verdict: act === "undo" ? "clear" : act, context: ctx } });
     row.querySelectorAll("button[data-act=like],button[data-act=dislike],button[data-act=known]").forEach((b) => b.setAttribute("aria-pressed", String(b === btn)));
     const msg = {
       like: "Saved. This artist now counts as part of your taste and pulls similar music up.",
       dislike: "Saved. Similar artists will be pushed down; this one won’t be shown again.",
       known: "Noted. It won’t be recommended again (no effect on your taste).",
+      undo: "Rating removed. This artist can appear in your recommendations again.",
     }[act];
     const o = stats.overall;
-    row.querySelector(".rec-state").textContent = `${msg} You’ve liked ${o.likes} of ${o.rated} rated picks so far.`;
-    if (act !== "like") row.classList.add("leaving");
+    row.querySelector(".rec-state span").textContent = `${msg} You’ve liked ${o.likes} of ${o.rated} rated picks so far.`;
+    row.querySelector("button[data-act=undo]").hidden = act === "undo";
+    row.classList.toggle("rated", act !== "undo");
+    const refresh = $("#refresh-recs");
+    if (refresh) refresh.textContent = act === "undo" ? "Refresh my list" : "Apply ratings to my list";
   } catch (err) {
+    message.textContent = previousMessage;
     toast(`Couldn’t save that: ${err.message}`);
+  } finally {
+    delete row.dataset.saving;
+    buttons.forEach((b) => { b.disabled = false; });
   }
 });
 
@@ -401,21 +436,49 @@ async function playPreview(btn, artist, track) {
 }
 
 // ---------------------------------------------------------------- For you
-let exploration = Number(store("mf.exploration") ?? 0.15);
-if (!Number.isFinite(exploration)) exploration = 0.15;
+let exploration = explorationChoice(store("mf.exploration"));
+let batchSize = batchChoice(store("mf.batchSize"));
 
 function dialText(e) {
-  if (e < 0.2) return "Safest bets: artists right next to the ones you already love. Highest measured accuracy.";
+  if (e < 0.2) return "Close matches: prioritise artists near the ones you already love.";
   if (e < 0.45) return "Mostly close matches, with a few less obvious names mixed in.";
   if (e < 0.7) return "Balanced: lesser-known artists and neighbouring genres. Expect a few more misses.";
   return "Adventurous: less famous artists further from your usual genres. Lower hit rate, more discoveries.";
 }
 
+function personalizationPanel() {
+  const p = state.personalization || {};
+  const next = nextRecommendationAction(state);
+  const title = {
+    working: "Your recommendations are being updated",
+    history: "Make this more personal with your history",
+    more_history: "More history can sharpen personal settings",
+    prepare: state.plays ? "Get more from your listening history" : "Update your music map",
+    current: p.model_current ? "Your history is shaping these picks" : "Your history has been checked",
+  }[next];
+  const reason = p.reason || (state.plays
+    ? "Check which settings predict your later listening best, then use a fitted model when the evidence supports it."
+    : "Import a Spotify export to learn from your plays, listening dates and any recorded skips. Your favourite picks are kept.");
+  const range = p.first && p.last ? ` · ${esc(p.first)} to ${esc(p.last)}` : "";
+  const details = state.plays ? `${fmt(state.plays)} plays${range}${p.has_skip_data === false ? " · no skip information" : ""}` : basisText();
+  const action = next === "prepare" ? `<button id="prepare-for-you" class="primary">${state.plays ? "Improve from my history" : "Update my recommendations"}</button>`
+    : next === "history" ? `<a class="button" href="#setup">Add my history</a>`
+    : next === "more_history" ? `<a class="button" href="#setup">Add more history</a>`
+    : `<a class="button" href="#accuracy">See accuracy and evidence</a>`;
+  return `<section class="personalization" aria-label="Recommendation status"><div><h2>${title}</h2><p>${esc(reason)}</p><p class="small muted">${details}</p></div><div class="row">${action}</div></section>`;
+}
+
 async function viewForYou() {
   if (needsGraph()) return;
-  const sub = `Based on ${basisText()} · ranking model: ${state.personalised_model
+  const mine = routeSeq;
+  const fitted = state.personalization?.model_current ?? state.personalised_model;
+  const sub = `Based on ${basisText()} · ranking model: ${fitted
     ? "fitted to your history by the accuracy test"
-    : state.plays ? "default weights (run the <a href=\"#accuracy\">accuracy test</a> to fit it to you)" : "default weights"}`;
+    : state.personalised_model ? "fitted to earlier history; new history needs a fresh check"
+    : state.plays ? (state.personalization?.tested_current
+      ? "default settings; this history did not support a reliable change"
+      : state.personalization?.can_evaluate === false ? "default settings; more history needed for personal settings"
+      : 'default settings; <a href="#accuracy">check personal settings</a>') : "default settings"}`;
   main.innerHTML = `
     <div class="view-head">
       <div><h1>New artists for you</h1><p>${sub}</p></div>
@@ -426,24 +489,57 @@ async function viewForYou() {
         <output id="dial-say" for="dial">${dialText(exploration)}</output>
       </div>
     </div>
+    ${personalizationPanel()}
+    <div class="recommendation-controls"><div class="row"><label for="batch-size">Artists at a time</label>
+      <select id="batch-size">${[10, 20, 30].map((n) => `<option value="${n}" ${n === batchSize ? "selected" : ""}>${n}</option>`).join("")}</select>
+      <button id="refresh-recs">Refresh my list</button></div>
+      <p class="small muted" id="list-status" role="status">Rate a few after listening, then refresh. Ratings change the ranking immediately.</p>
+    </div>
     ${meterKey}
     <ol class="recs" id="recs"><li class="loading">Ranking every candidate…</li></ol>`;
+  jobButton($("#prepare-for-you"), "/api/prepare");
+  const box = $("#recs");
+  const refresh = $("#refresh-recs");
+  const status = $("#list-status");
+  const requests = latestRequest();
   const load = async () => {
-    const data = await api(`/api/recommendations?n=30&exploration=${exploration}`);
-    const items = data.items;
-    const scale = meterScale(items);
-    $("#recs").innerHTML = items.length
-      ? items.map((r, i) => recRow(r, i, scale)).join("")
-      : `<li class="empty">No unfamiliar artists found near your taste yet. Pick a few more artists you love in <a href="#setup">Setup</a>, or import your Spotify history.</li>`;
+    const token = requests.start();
+    refresh.disabled = true;
+    box.setAttribute("aria-busy", "true");
+    status.textContent = "Updating your list…";
+    try {
+      const data = await api(`/api/recommendations?n=${batchSize}&exploration=${exploration}`);
+      if (mine !== routeSeq || !requests.current(token) || !box.isConnected) return;
+      const items = data.items;
+      const scale = meterScale(items);
+      box.innerHTML = items.length
+        ? items.map((r, i) => recRow(r, i, scale)).join("")
+        : `<li class="empty">No unfamiliar artists found near your taste yet. Pick a few more artists you love in <a href="#setup">Setup</a>, or add more Spotify history.</li>`;
+      status.textContent = `${items.length} artists ready. The percentile compares candidates; it is not the chance you’ll like them.`;
+      refresh.textContent = "Refresh my list";
+    } finally {
+      if (requests.current(token) && box.isConnected) {
+        refresh.disabled = false;
+        box.setAttribute("aria-busy", "false");
+      }
+    }
   };
   let t;
   $("#dial").addEventListener("input", (e) => {
+    requests.start(); // invalidate older results as soon as the listener changes the dial
     exploration = Number(e.target.value);
     store("mf.exploration", String(exploration));
     $("#dial-say").textContent = dialText(exploration);
     clearTimeout(t);
     t = setTimeout(() => load().catch((err) => toast(err.message)), 300);
   });
+  $("#batch-size").addEventListener("change", (e) => {
+    batchSize = batchChoice(e.target.value);
+    store("mf.batchSize", String(batchSize));
+    clearTimeout(t);
+    load().catch((err) => toast(err.message));
+  });
+  refresh.addEventListener("click", () => { clearTimeout(t); load().catch((err) => toast(err.message)); });
   await load();
 }
 
@@ -459,12 +555,14 @@ function songRow(s) {
 
 async function viewSongs() {
   if (needsGraph()) return;
+  const mine = routeSeq;
   main.innerHTML = `
     <div class="view-head"><div><h1>Songs to try</h1>
     <p>Three kinds of picks, kept apart so you always know why a song is here.</p></div></div>
     <p class="loading" id="songs-loading">Looking up songs… the first time this needs a few dozen lookups (about 20 seconds).</p>
     <div id="songs"></div>`;
   const data = await api(`/api/songs?exploration=${exploration}`);
+  if (mine !== routeSeq) return;
   const block = (title, lede, items) => `<section class="section"><h2>${title}</h2><p class="lede">${lede}</p>
     ${items.length ? `<ol class="songs">${items.map(songRow).join("")}</ol>` : `<p class="muted">Nothing found for this list yet.</p>`}</section>`;
   $("#songs-loading").remove();
@@ -482,14 +580,18 @@ function bars(rows, { max } = {}) {
     <span class="val">${esc(r.text)}</span></li>`).join("")}</ul>`;
 }
 
+const tagRequests = latestRequest();
 async function exploreTag(tag) {
   const box = $("#tag-result");
   if (!box || !tag) return;
+  const mine = routeSeq;
+  const token = tagRequests.start();
   $("#tag-input").value = tag;
   box.innerHTML = `<p class="loading">Finding your best way into “${esc(tag)}”…</p>`;
   box.scrollIntoView({ behavior: "smooth", block: "start" });
   try {
     const res = await api(`/api/explore/tag?tag=${enc(tag)}`);
+    if (mine !== routeSeq || !tagRequests.current(token) || !box.isConnected) return;
     const scale = meterScale(res.gateways);
     box.innerHTML = `<section class="territory"><div class="territory-head"><h2>Your way into ${esc(res.tag)}</h2>
       <span class="meta">${res.found} artists checked; ranked by how close each sits to what you already love</span></div>
@@ -497,28 +599,32 @@ async function exploreTag(tag) {
       ${res.gateways.length ? `<ol class="recs">${res.gateways.map((r, i) => recRow(r, i, scale, { territory: res.tag })).join("")}</ol>`
         : `<p class="muted">No artists found for that genre. Try a broader word, like jazz, metal or folk.</p>`}</section>`;
   } catch (err) {
+    if (mine !== routeSeq || !tagRequests.current(token) || !box.isConnected) return;
     box.innerHTML = `<p class="error">${esc(err.message)}</p>`;
   }
 }
 
 async function viewExplore() {
   if (needsGraph()) return;
+  const mine = routeSeq;
   main.innerHTML = `
     <div class="view-head"><div><h1>Explore beyond your usual</h1>
-    <p>Each unfamiliar genre near your taste gets a running estimate of how likely you are to enjoy it. Your ratings update it,
-    and the order mixes promising genres with uncertain ones (Thompson sampling), so you keep discovering without being flooded with misses.</p></div>
+    <p>Discover genres connected to your listening. Similarity and your ratings guide the order, with room for genres you have not tried yet. This exploration order is a guide, not a measured chance you will like a genre.</p></div>
     <div><button id="shuffle">Shuffle the genres</button></div></div>
     <div class="split"><div id="terrs"><p class="loading">Mapping genres around your taste…</p></div>
     <aside class="stack" id="explore-side"></aside></div>
     <div id="tag-result"></div>`;
+  const requests = latestRequest();
   const load = async (seed) => {
+    const token = requests.start();
     const data = await api(`/api/explore${seed != null ? `?seed=${seed}` : ""}`);
+    if (mine !== routeSeq || !requests.current(token)) return;
     $("#terrs").innerHTML = data.territories.length ? data.territories.map((t) => {
       const scale = meterScale(t.gateways);
       const next = t.related_genres_you_know.length ? `Next door to ${esc(listJoin(t.related_genres_you_know))}` : "Reached through your taste network";
-      const rated = t.likes + t.dislikes ? ` · you liked ${t.likes} of ${t.likes + t.dislikes} so far` : "";
+      const rated = t.likes + t.dislikes ? `You liked ${t.likes} of ${t.likes + t.dislikes} rated artists here` : "You have not rated artists in this genre yet";
       return `<section class="territory"><div class="territory-head"><h2>${esc(t.tag)}</h2>
-        <span class="meta">Estimated like-rate ${pct(t.predicted_like_rate)}${rated}</span></div>
+        <span class="meta">${rated}</span></div>
         <p class="meta">${next}. Best ways in:</p>
         <ol class="recs">${t.gateways.map((r, i) => recRow(r, i, scale, { territory: t.tag })).join("")}</ol></section>`;
     }).join("") : `<div class="empty"><h2>No unfamiliar genres nearby yet</h2><p>Use the genre search to jump anywhere.</p></div>`;
@@ -540,7 +646,9 @@ async function viewExplore() {
 
 // ---------------------------------------------------------------- Your taste
 async function viewTaste() {
+  const mine = routeSeq;
   const p = await api("/api/profile");
+  if (mine !== routeSeq) return;
   const genres = p.genres ? `<section><h2>Genres</h2>${bars(p.genres.slice(0, 12).map((g) => ({ label: g.tag, value: g.share, text: pct(g.share) })))}</section>` : "";
   if (!p.plays) {
     // Only picked artists so far: nothing to measure yet.
@@ -568,7 +676,7 @@ async function viewTaste() {
       <div class="tile"><div class="label">Skipped in first 30 s</div><div class="value">${pct(p.skip_rate)}</div></div>
       ${p.median_listeners_of_top_artists ? `<div class="tile"><div class="label">Typical favourite’s audience</div><div class="value">${compact(p.median_listeners_of_top_artists)}</div></div>` : ""}
     </div>
-    ${p.has_skip_data ? "" : `<div class="note"><p>Your data has no skip information (the “Account data” export). Predictions get noticeably better with the <b>Extended streaming history</b> export, which records every skip — request it in Setup.</p></div>`}
+    ${p.has_skip_data ? "" : `<div class="note"><p>Your data has no skip information (the “Account data” export). The <b>Extended streaming history</b> export adds recorded skip signals — request it in Setup.</p></div>`}
     <div class="split section">
       <section><h2>Artists, by modelled affinity</h2>
         <p class="lede small">Affinity weighs how much of each song you play, whether you chose it, and skips, with older listening fading (half-life ${p.model.memory_half_life_days ? `${Math.round(p.model.memory_half_life_days)} days` : "none"}). Artists you picked count as firm favourites. “Keeps you listening” is the estimated chance a play is not skipped, shrunk toward your average when there is little data.</p>
@@ -621,19 +729,22 @@ function metricsTable(rep) {
     ${rows.map(([n, m, me]) => `<tr${me ? ' class="highlight"' : ""}><td>${n}</td>${cell(m["recall@10"])}${cell(m["recall@50"])}${cell(m["recall@100"])}
       ${cell(m["precision@10"])}${cell(m["ndcg@50"], (v) => v.toFixed(2))}${cell(m.mean_percentile_rank, (v) => `${v.toFixed(0)}%`)}${cell(m.auc, (v) => v.toFixed(2))}</tr>`).join("")}
     </tbody></table></div>
-    <p class="small muted">Recall@K: share of the artists you went on to love that were in the top K. Percentile rank: where those artists sat in the full ranking (0% = top, 50% = random). Preference AUC: chance a loved artist outranks a skipped one (0.5 = guessing).</p>`;
+    <p class="small muted">Recall@K: share of the new artists you returned to that were in the top K. Percentile rank: where they sat in the full ranking (0% = top); missing artists count as worst rank, including in the random baseline. Preference AUC: how often a repeated artist outranks a consistently skipped one among the covered artists (0.5 = guessing).</p>`;
 }
 
 async function viewAccuracy() {
+  const mine = routeSeq;
   const [rep, fb] = await Promise.all([api("/api/evaluation"), api("/api/feedback")]);
-  const running = state.job.running && state.job.name === "evaluate";
+  if (mine !== routeSeq) return;
+  const eligible = state.personalization?.can_evaluate ?? Boolean(state.plays);
   const intro = `<p>Sideband hides your most recent listening, predicts from everything before it, then checks the predictions against the new artists you actually went on to love or skip. Settings are chosen on an earlier window and graded on a later one they never saw.</p>`;
-  const runBtn = `<button class="primary" id="run-eval" ${running || !state.plays ? "disabled" : ""}>${rep && rep.ok ? "Re-run the accuracy test" : "Run the accuracy test"}</button>`;
+  const runBtn = `<button class="primary" id="run-eval" ${state.job.running || !eligible || state.lookup_available === false ? "disabled" : ""}>${rep && rep.ok ? "Re-run the accuracy test" : "Run the accuracy test"}</button>`;
   const live = liveAccuracy(fb);
   if (!rep || !rep.ok) {
     main.innerHTML = `<div class="view-head"><div><h1>How accurate is it — for you?</h1>${intro}</div>
       <div>${runBtn}<p class="small muted">Takes a few minutes the first time: it maps two past versions of your taste.</p></div></div>
       ${!state.plays ? `<div class="note"><p>The accuracy test replays your listening history, so it needs your Spotify export (see <a href="#setup">Setup</a>). Until that arrives, your Like / Not for me ratings below measure how accurate Sideband is for you.</p></div>`
+        : !eligible ? `<div class="note"><p>${esc(state.personalization?.reason || rep?.reason || "More listening history is needed for this test.")} <a href="#setup">Add more history</a></p></div>`
         : rep && rep.reason ? `<div class="note"><p>${esc(rep.reason)}</p></div>` : ""}${live}`;
     jobButton($("#run-eval"), "/api/evaluate");
     return;
@@ -659,16 +770,20 @@ async function viewAccuracy() {
       <div>${runBtn}<p class="small muted">Last run ${esc(new Date(rep.generated).toLocaleString())}. Test window ${esc(rep.windows.test[0])} to ${esc(rep.windows.test[1])}.</p></div></div>
     ${rep.demo ? `<div class="note"><p>These numbers come from the simulated demo listener, not from you.</p></div>` : ""}
     ${rep.enough_data ? "" : `<div class="note"><p>Only ${gt.test_adopted} new artists were adopted in the test window, so these numbers are very uncertain. More history (the Extended streaming history export) helps.</p></div>`}
+    ${rep.selection ? `<div class="note"><p><b>${rep.selection.personalised ? "This test accepted personalized settings." : "This test kept default settings."}</b> ${esc(rep.selection.reason || "Settings change only when validation supports an improvement.")}</p></div>` : ""}
+    ${state.personalised_model && state.personalization?.model_current === false ? `<div class="note"><p>Your recommendations still use the earlier fitted settings. The results below describe this history test.</p></div>` : ""}
+    ${state.personalization?.tested_current === false ? `<div class="note"><p>This report is from earlier listening data. Adding enough new history and using “Improve from my history” checks it again.</p></div>` : ""}
     <div class="summary section">${rep.summary.map((s) => `<p>${esc(s)}</p>`).join("")}</div>
     <div class="section stack">
       <section><h2>Did the top 50 contain them?</h2><p class="lede small">Recall@50 on the held-out window, ${gt.test_adopted} newly loved artists. Line: 95% bootstrap interval.</p>
         ${dotWhisker(recallRows, { label: "Recall at 50 by method" })}</section>
-      <section><h2>Loved vs. skipped</h2><p class="lede small">Preference AUC over ${gt.test_adopted} loved and ${gt.test_rejected} skipped new artists. Grey line: guessing.</p>
+      <section><h2>Loved vs. skipped</h2><p class="lede small">Preference AUC over ${(rep.model.auc_n || [gt.test_adopted, gt.test_rejected])[0]} loved and ${(rep.model.auc_n || [gt.test_adopted, gt.test_rejected])[1]} skipped new artists available to the model. Grey line: guessing.</p>
+        ${rep.model.preference_available ? `<p class="small muted">${fmt(rep.model.preference_available[0])} of ${fmt(rep.model.preference_available[1])} heard artists could be graded for preference. Missing discoveries still count as misses in the top-50 test.</p>` : ""}
         ${dotWhisker(aucRows, { chance: 0.5, label: "Preference AUC by method" })}</section>
     </div>
     <section class="section"><h2>All metrics</h2>${metricsTable(rep)}</section>
     <div class="split-even section">
-      <section><h2>What exploring costs</h2><p class="lede small">The same test with the adventurous dial turned up. Discovery always trades some accuracy for novelty; this is how much, for you.</p>
+      <section><h2>What changes when you explore</h2><p class="lede small">The same held-out test at different dial settings. Compare measured recall with audience size and genre range.</p>
         <table><thead><tr><th>Dial</th><th class="num">Hits in top 50</th><th class="num">Recall@50</th><th class="num">Typical audience</th><th class="num">Genres</th></tr></thead><tbody>
         ${trade.map((t) => `<tr><td>${t.exploration === 0 ? "Safe bets" : t.exploration === 1 ? "Adventurous" : "Balanced"}</td><td class="num">${t["hits@50"]}</td><td class="num">${pct(t["recall@50"])}</td><td class="num">${compact(t.median_listeners)}</td><td class="num">${t.distinct_genres}</td></tr>`).join("")}
         </tbody></table></section>
@@ -684,6 +799,7 @@ async function viewAccuracy() {
     <section class="section note">
       <h2>Limits worth knowing</h2>
       <p>No recommender can be perfectly accurate: taste depends on mood and context, and these tests can only grade artists you happened to hear. Artists you found through friends, films or radio may not be reachable from similarity data at all (${pct(1 - (rep.model.coverage ?? 1))} of yours weren’t). Similarity data is today’s, so the test window is graded with slightly newer data than you had then. Your own ratings are the real-world check.</p>
+      ${rep.limitations?.length ? `<ul>${rep.limitations.map((item) => `<li>${esc(item)}</li>`).join("")}</ul>` : ""}
     </section>`;
   jobButton($("#run-eval"), "/api/evaluate");
 }
@@ -694,10 +810,11 @@ function liveAccuracy(fb) {
   const cal = fb.calibration;
   return `<section class="section"><h2>Live accuracy: your ratings</h2>
     ${o.rated ? `<p>You liked <b>${o.likes} of ${o.rated}</b> rated recommendations (${pct(o.like_rate)}; 95% interval ${pct(o.ci95[0])}–${pct(o.ci95[1])}).</p>`
-      : `<p class="muted">Rate recommendations with Like / Not for me and the real hit rate will appear here, with an error bar.</p>`}
+      : `<p class="muted">Rate recommendations with Like / Not for me to see your like rate among the artists you rated, with an error bar.</p>`}
     ${rows.length ? `<table><thead><tr><th>Dial setting</th><th class="num">Liked</th><th class="num">Rated</th><th class="num">Like rate (95% interval)</th></tr></thead><tbody>
       ${rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td class="num">${v.likes}</td><td class="num">${v.rated}</td><td class="num">${pct(v.like_rate)} (${pct(v.ci95[0])}–${pct(v.ci95[1])})</td></tr>`).join("")}</tbody></table>` : ""}
-    <p class="small muted">${cal ? `Match scores are now calibrated into “chance you’ll like it” from your ${cal.n} ratings.` : "After 20 ratings, match scores are calibrated into a “chance you’ll like it” estimate."}</p>
+    <p class="small muted">${cal ? `Score-based “chance you’ll like it” estimates use your ${cal.n} ratings and remain uncertain.` : "With enough varied ratings, Sideband can estimate a chance you’ll like a recommendation. Percentile scores alone are not probabilities."}</p>
+    <p class="small muted">You choose which artists to rate, so these results describe those artists. They are not an unbiased measure of every recommendation or a guarantee about the next one.</p>
   </section>`;
 }
 
@@ -718,19 +835,36 @@ function updateBuildControls() {
   const btn = $("#build");
   if (!btn) return;
   const ready = canBuild();
-  btn.disabled = !ready || state.job.running;
+  const onlyOpen = state.graph_ready && ["current", "history", "more_history"].includes(nextRecommendationAction(state));
+  btn.disabled = !ready || state.job.running || importing || (state.lookup_available === false && !onlyOpen);
   btn.textContent = buildLabel();
+  const historyButton = $("#prepare-history");
+  if (historyButton) {
+    historyButton.hidden = !state.plays;
+    historyButton.disabled = state.job.running || importing || (state.lookup_available === false && !onlyOpen);
+    historyButton.textContent = buildLabel();
+  }
+  [$("#clear-data"), $("#clear-fb")].forEach((b) => { if (b) b.disabled = importing; });
+  const files = $("#files");
+  if (files) files.disabled = importing;
+  const drop = $("#drop");
+  if (drop) drop.setAttribute("aria-disabled", String(importing));
   const hint = $("#build-hint");
   if (!hint) return;
-  if (state.job.running) hint.textContent = "Working on it (see the progress bar). Picks you add meanwhile are used when you update next.";
+  if (state.lookup_available === false) hint.textContent = "History imports are available. Connect the lookup service to find new music.";
+  else if (importing) hint.textContent = "Finish importing first. Your favourite picks are kept.";
+  else if (state.job.running) hint.textContent = "Working on it (see the progress bar). Picks you add meanwhile are used when you update next.";
   else if (!ready) hint.textContent = "Pick at least one artist first.";
   else if (!state.plays && state.picks.loved < 3) hint.textContent = "A few more picks will sharpen it, but you can start now.";
-  else hint.textContent = `Takes a minute or two${BROWSER ? "; keep this page open" : ""}.`;
+  else hint.textContent = state.plays
+    ? `Maps your taste and checks the best settings from your history in one step${BROWSER ? "; keep this page open" : ""}. The first run can take several minutes.`
+    : `Takes a minute or two${BROWSER ? "; keep this page open" : ""}.`;
 }
 
 function buildLabel() {
+  if (state.plays && nextRecommendationAction(state) === "prepare") return "Improve from my history";
   if (state.graph_exists && !state.graph_ready) return "Update my recommendations";
-  if (state.graph_exists) return "Rebuild my music map";
+  if (state.graph_exists) return "Open my recommendations";
   return "Find my music";
 }
 
@@ -740,11 +874,20 @@ async function viewSetup() {
   if (mine !== routeSeq) return;
   main.innerHTML = `
     <div class="view-head"><div><h1>Find the music you’ll love — and see why.</h1>
-      <p>Start in a minute: name a few artists you love and Sideband maps the music around them. Later, add your Spotify history and it learns from every play and skip, and measures its own accuracy on you.</p></div></div>
+      <p>Use your Spotify history for recommendations that reflect how you actually listen. One button maps your taste, tests it against later listening and fits settings when the evidence is reliable. You can also start with favourite artists while you wait for an export.</p></div></div>
     ${BROWSER && IOS && !STANDALONE && !state.demo ? `<div class="note"><p><b>On an iPhone, do this first:</b> tap Share → <b>Add to Home Screen</b>, then open Sideband from the new icon and do the steps below there. The Home Screen app keeps its own copy of your data, separate from Safari, and Safari may delete website data after about a week without a visit.</p></div>` : ""}
     <ol class="steps">
+      <li><div><h2>Add your listening history</h2>
+        <p>Already have a Spotify export? Choose the ZIP or all its JSON files together. Importing it again adds only new plays, and keeps your picks and ratings.</p>
+        <label class="drop" id="drop" for="files"><strong>Drop my_spotify_data.zip, or the JSON files inside it</strong>
+          <span class="muted">or ${BROWSER ? "tap" : "click"} to choose files. Everything stays ${WHERE}.</span></label>
+        <input id="files" type="file" multiple accept=".zip,.json,application/json,application/zip" hidden>
+        <ul class="file-log" id="file-log"></ul>
+        <p class="small" id="data-status" role="status">${state.plays ? `${fmt(state.plays)} plays imported.` : "No history imported yet."}</p>
+        <div class="row"><button class="primary" id="prepare-history" ${state.plays ? "" : "hidden"}>Improve from my history</button><a href="#accuracy" ${state.plays ? "" : "hidden"} id="history-accuracy">See my accuracy</a></div>
+        <details class="export-help"><summary>How to get a Spotify export</summary><p>Request <b>Extended streaming history</b> in Spotify’s <a href="https://www.spotify.com/account/privacy/" target="_blank" rel="noopener">privacy settings</a>. It includes listening dates and recorded skips. The faster <b>Account data</b> package works too; it has no skip information. You can import both, including saved songs, followed artists, playlists and hidden songs. While you wait for it, start with favourites below.</p></details></div></li>
       <li><div><h2>Pick artists you love</h2>
-        <p>Five to ten works best; mix the different kinds of music you like. Mark artists you can’t stand too, and Sideband will steer away from their sound.</p>
+        <p>No export yet? Pick a few favourites across the kinds of music you like and start now. With history, use picks to highlight favourites it missed. Mark artists you don’t enjoy to steer away from their sound.</p>
         <form id="pick-form" class="picker" role="search" autocomplete="off"><label for="pick-q" class="small">Artist</label>
           <input id="pick-q" type="search" placeholder="Start typing an artist’s name" enterkeyhint="search" autocomplete="off" autocapitalize="off" spellcheck="false"></form>
         <ul class="pick-results" id="pick-results"></ul>
@@ -752,57 +895,61 @@ async function viewSetup() {
         <div id="pick-chips" tabindex="-1">${pickChips(picks)}</div>
         <div class="row build-row"><button class="primary" id="build"></button>
           <span class="small muted" id="build-hint"></span></div></div></li>
-      <li><div><h2>Optional: add your Spotify history</h2>
-        <p>For sharper predictions, ask Spotify for your <b>Extended streaming history</b> in its <a href="https://www.spotify.com/account/privacy/" target="_blank" rel="noopener">privacy settings</a>. It lists every play since you joined, including skips. Spotify can take a few days (at most 30) to send it. <b>You don’t need to wait:</b> use Sideband now and add the file whenever it arrives. Your picks are kept.</p>
-        <label class="drop" id="drop" for="files"><strong>Drop my_spotify_data.zip, or the JSON files inside it</strong>
-          <span class="muted">or ${BROWSER ? "tap" : "click"} to choose files. Everything stays ${WHERE}.</span></label>
-        <input id="files" type="file" multiple accept=".zip,.json,application/json,application/zip" hidden>
-        <ul class="file-log" id="file-log"></ul>
-        <p class="small" id="data-status">${state.plays ? `${fmt(state.plays)} plays imported.` : "No history imported yet."}</p>
-        <p class="small muted">The faster <b>Account data</b> package (last 12 months, no skips) works too, and you can import both. Liked songs, followed artists, playlists and hidden songs in it are used as well.</p></div></li>
     </ol>
     ${BROWSER ? `<section class="section note"><h2>Where your data lives</h2>
       <p>Your picks, listening history and ratings are saved ${WHERE}, not on a server. Other devices start empty${IOS ? ", and on an iPhone the Home Screen app and Safari each keep their own copy" : ""}. Clearing this site’s data in the browser settings deletes it.</p>
-      ${state.demo ? `<p><a href="/">Leave the demo</a></p>` : `<p>Curious first? <a href="/?demo=1">Try it with a simulated listener</a> (nothing is saved).</p>`}</section>` : ""}
-    <section class="section"><h2>Start over</h2>
-      <div class="row"><button id="clear-data">Delete my picks and listening data</button><button id="clear-fb">Delete my ratings</button></div></section>`;
+      ${state.demo ? `<p><a href="./">Leave the demo</a></p>` : `<p>Curious first? <a href="?demo=1">Try it with a simulated listener</a> (nothing is saved).</p>`}</section>` : ""}
+    <details class="section"><summary>Manage or delete my data</summary>
+      <div class="row"><button id="clear-data">Delete my picks and listening data</button><button id="clear-fb">Delete my ratings</button></div></details>`;
 
   updateBuildControls();
 
   // --- picking
   const results = $("#pick-results");
-  const say = (text) => { $("#pick-status").textContent = text; };
+  const pickStatus = $("#pick-status");
+  const chipsBox = $("#pick-chips");
+  const say = (text) => { if (pickStatus.isConnected) pickStatus.textContent = text; };
   let seq = 0;
   let timer;
   const search = async (q) => {
     const mine = ++seq;
+    if (!results.isConnected) return;
     if (!q) { results.innerHTML = ""; say(""); return; }
+    if (state.lookup_available === false) {
+      results.innerHTML = `<li class="muted">Artist search needs a connected lookup service. You can import history above and view your saved taste now.</li>`;
+      say("Artist search is unavailable until the lookup service connects.");
+      return;
+    }
     results.innerHTML = `<li class="loading">Searching…</li>`;
     try {
       const res = await api(`/api/search/artists?q=${enc(q)}`);
-      if (mine !== seq) return; // a newer search is on its way
+      if (mine !== seq || !results.isConnected) return; // a newer search or view is on its way
       results.innerHTML = res.items.length ? res.items.map(pickRow).join("")
         : `<li class="muted">No artist called “${esc(q)}” found. Check the spelling?</li>`;
       say(res.items.length ? `${res.items.length} artist${res.items.length === 1 ? "" : "s"} found.` : "No artist found.");
     } catch (err) {
-      if (mine !== seq) return;
+      if (mine !== seq || !results.isConnected) return;
       results.innerHTML = `<li class="error">${esc(err.message)}</li>`;
       say(err.message);
     }
   };
   const input = $("#pick-q");
-  input.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(() => search(input.value.trim()), 350); });
+  input.addEventListener("input", () => { seq++; clearTimeout(timer); timer = setTimeout(() => search(input.value.trim()), 350); });
   $("#pick-form").addEventListener("submit", (e) => { e.preventDefault(); clearTimeout(timer); search(input.value.trim()); });
 
   const afterPick = async (now) => {
-    $("#pick-chips").innerHTML = pickChips(now);
+    if (chipsBox.isConnected) chipsBox.innerHTML = pickChips(now);
     await refreshState();
-    updateBuildControls();
+    if (chipsBox.isConnected) updateBuildControls();
   };
   results.addEventListener("click", async (e) => {
     const btn = e.target.closest("button[data-pick]");
     if (!btn) return;
     const li = btn.closest("li[data-name]");
+    if (li.dataset.saving) return;
+    li.dataset.saving = "1";
+    const buttons = li.querySelectorAll("button[data-pick]");
+    buttons.forEach((b) => { b.disabled = true; });
     const name = li.dataset.name;
     const verdict = btn.getAttribute("aria-pressed") === "true" ? "remove" : btn.dataset.pick;
     try {
@@ -811,55 +958,89 @@ async function viewSetup() {
       await afterPick(now);
       say(verdict === "love" ? `${name} added to your favourites.` : verdict === "dislike" ? `${name} marked as not for you.` : `${name} removed.`);
     } catch (err) { toast(err.message); }
+    finally { delete li.dataset.saving; buttons.forEach((b) => { b.disabled = false; }); }
   });
   $("#pick-chips").addEventListener("click", async (e) => {
     const btn = e.target.closest("button[data-unpick]");
     if (!btn) return;
     const name = btn.dataset.unpick;
-    const index = [...$("#pick-chips").querySelectorAll(".pick-chip")].indexOf(btn);
+    const index = [...chipsBox.querySelectorAll(".pick-chip")].indexOf(btn);
     try {
       const now = await api("/api/picks", { method: "POST", body: { artist: name, verdict: "remove" } });
       results.querySelectorAll("li[data-name]").forEach((li) => {
         if (li.dataset.name === name) li.querySelectorAll("button[data-pick]").forEach((b) => b.setAttribute("aria-pressed", "false"));
       });
       await afterPick(now);
+      if (!chipsBox.isConnected) return;
       // keep keyboard focus nearby rather than losing it with the removed chip
-      const chips = $("#pick-chips").querySelectorAll(".pick-chip");
-      (chips[Math.min(index, chips.length - 1)] || $("#pick-chips")).focus();
+      const chips = chipsBox.querySelectorAll(".pick-chip");
+      (chips[Math.min(index, chips.length - 1)] || chipsBox).focus();
       say(`${name} removed.`);
     } catch (err) { toast(err.message); }
   });
-  jobButton($("#build"), "/api/build", () => {
+  const openRecommendations = () => {
     if (location.hash === "#for-you") route();
     else location.hash = "#for-you";
-  });
+  };
+  jobButton($("#build"), "/api/prepare", openRecommendations);
+  jobButton($("#prepare-history"), "/api/prepare", openRecommendations);
 
   // --- importing Spotify history
   const log = $("#file-log");
-  const upload = async (files) => {
-    for (const f of files) {
-      const li = document.createElement("li");
-      li.textContent = `Importing ${f.name}…`;
-      log.append(li);
-      try {
-        const r = await api("/api/import", { method: "POST", body: f, headers: { "X-Filename": enc(f.name) } });
-        const lib = Object.values(r.library || {}).reduce((a, b) => a + b, 0);
-        li.textContent = r.plays || lib
-          ? `${f.name}: ${fmt(r.plays)} plays (${fmt(r.new_plays_added)} new)${lib ? `, ${fmt(lib)} library items` : ""}.`
-          : `${f.name}: no listening data found (${(r.files_ignored || []).length} files ignored).`;
-      } catch (err) {
-        li.innerHTML = `<span class="error">${esc(f.name)}: ${esc(err.message)}</span>`;
-      }
-    }
-    await refreshState();
-    $("#data-status").textContent = state.plays ? `${fmt(state.plays)} plays imported. Next: ${state.graph_exists ? "update" : "build"} your recommendations with the button above.` : "No history imported yet.";
-    updateBuildControls();
-  };
   const drop = $("#drop");
-  $("#files").addEventListener("change", (e) => upload([...e.target.files]));
+  const filesInput = $("#files");
+  const dataStatus = $("#data-status");
+  const upload = async (files) => {
+    if (!files.length) return;
+    if (importing) { toast("An import is already running. Choose these files again when it finishes."); return; }
+    importing = true;
+    filesInput.disabled = true;
+    drop.setAttribute("aria-disabled", "true");
+    updateBuildControls();
+    let added = 0;
+    let failures = 0;
+    try {
+      for (const [index, f] of files.entries()) {
+        const li = document.createElement("li");
+        li.textContent = `Importing ${index + 1} of ${files.length}: ${f.name}…`;
+        log.append(li);
+        if (dataStatus.isConnected) dataStatus.textContent = `Importing file ${index + 1} of ${files.length}. You can leave this view; keep Sideband open until it finishes.`;
+        try {
+          const r = await api("/api/import", { method: "POST", body: f, headers: { "X-Filename": enc(f.name) } });
+          const lib = Object.values(r.library || {}).reduce((a, b) => a + b, 0);
+          added += r.new_plays_added || 0;
+          li.textContent = r.plays || lib
+            ? `${f.name}: ${fmt(r.plays)} plays (${fmt(r.new_plays_added)} new)${lib ? `, ${fmt(lib)} library items` : ""}.`
+            : `${f.name}: no listening data found (${(r.files_ignored || []).length} files ignored).`;
+        } catch (err) {
+          failures++;
+          li.innerHTML = `<span class="error">${esc(f.name)}: ${esc(err.message)}. You can choose this file again to retry.</span>`;
+        }
+      }
+      await refreshState();
+      const nextImportStep = state.lookup_available === false
+        ? "Your taste profile is ready. Connect the lookup service to find new music."
+        : state.personalization?.can_evaluate
+          ? "Use “Improve from my history” to map and test your taste in one step."
+          : "Find my music uses these plays now; more history is needed to test personal settings.";
+      if (dataStatus.isConnected) dataStatus.textContent = state.plays
+        ? `${fmt(state.plays)} plays saved (${fmt(added)} added now). ${failures ? `${failures} file${failures === 1 ? " needs" : "s need"} a retry. ` : ""}${nextImportStep}`
+        : "No history imported yet. Choose a Spotify history ZIP or JSON file to try again.";
+      const accuracy = $("#history-accuracy");
+      if (accuracy) accuracy.hidden = !state.plays;
+      toast(failures ? `Import finished with ${failures} file${failures === 1 ? "" : "s"} to retry.` : `${fmt(added)} new plays added. Your picks and ratings are kept.`);
+    } finally {
+      importing = false;
+      filesInput.disabled = false;
+      filesInput.value = ""; // selecting the same file again must fire change after an error
+      drop.setAttribute("aria-disabled", "false");
+      updateBuildControls();
+    }
+  };
+  filesInput.addEventListener("change", (e) => upload([...e.target.files]).catch((err) => toast(`Couldn’t finish importing: ${err.message}`, 7000)));
   drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
   drop.addEventListener("dragleave", () => drop.classList.remove("over"));
-  drop.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("over"); upload([...e.dataTransfer.files]); });
+  drop.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("over"); upload([...e.dataTransfer.files]).catch((err) => toast(err.message)); });
   drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("#files").click(); } });
   drop.tabIndex = 0;
   $("#clear-data").addEventListener("click", async () => {

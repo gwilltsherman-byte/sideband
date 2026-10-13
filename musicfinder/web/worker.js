@@ -95,13 +95,19 @@ async function becomeOwner() {
 
 // ---------------------------------------------------------------- start-up
 async function boot() {
-  post({ type: "boot", stage: "Loading the music engine (first visit downloads about 6 MB)…" });
+  post({ type: "boot", stage: "Starting Sideband. The first visit may take a little longer…" });
 
   // Does this site's relay hold a Last.fm key? (Asked at run time, so it always matches the relay.)
-  const relayConfig = DEMO ? {} : await fetch(`${RELAY}?config=1`).then(async r => {
-    if (!r.ok) throw new Error("The music lookup service is not connected. Open Sideband in GitHub Codespaces from the README, or use ?demo=1 to try the demo.");
-    return r.json();
-  });
+  // Local history and saved results remain usable if this copy has no live lookup service.
+  const relayTimeout = new AbortController();
+  const timer = setTimeout(() => relayTimeout.abort(), 10_000);
+  const relayConfig = DEMO ? { available: true } : await fetch(`${RELAY}?config=1`, {
+    signal: relayTimeout.signal,
+  }).then(async r => {
+    if (!r.ok) throw new Error("Music lookup service unavailable");
+    return { ...(await r.json()), available: true };
+  }).catch(() => ({ available: false, lastfm: false }));
+  clearTimeout(timer);
   const ownership = becomeOwner();
   const { loadPyodide } = await import(`${PYODIDE}pyodide.mjs`);
   py = await loadPyodide({ indexURL: PYODIDE });
@@ -126,8 +132,10 @@ async function boot() {
   if (DEMO) post({ type: "boot", stage: "Simulating a listener and a music catalogue (about 30 seconds)…" });
   py.runPython("import sys\nif '/home/pyodide' not in sys.path: sys.path.insert(0, '/home/pyodide')");
   const lastfm = Boolean(relayConfig.lastfm);
+  py.globals.set("sideband_relay_url", RELAY);
   backend = py.runPython("from musicfinder.browser import BrowserBackend\n"
-    + `BrowserBackend(demo=${DEMO ? "True" : "False"}, lastfm=${lastfm ? "True" : "False"})`);
+    + `BrowserBackend(demo=${DEMO ? "True" : "False"}, lastfm=${lastfm ? "True" : "False"}, `
+    + `lookup_available=${relayConfig.available ? "True" : "False"}, relay_url=sideband_relay_url)`);
   lastWrites = backend.writes(); // opening the database is not a change worth saving
   post({ type: "ready", demo: DEMO });
 }

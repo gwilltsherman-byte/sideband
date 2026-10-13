@@ -13,6 +13,12 @@ let nextId = 1;
 const pending = new Map();
 let fatal = null;
 
+function failRequests(message) {
+  fatal = message;
+  for (const p of pending.values()) p.resolve({ status: 500, payload: { error: message } });
+  pending.clear();
+}
+
 function showBoot(text) {
   const el = document.querySelector("#main .loading");
   if (el) el.textContent = text;
@@ -26,10 +32,8 @@ worker.onmessage = (event) => {
   } else if (msg.type === "boot") {
     showBoot(msg.stage);
   } else if (msg.type === "fatal") {
-    fatal = msg.error;
+    failRequests(msg.error);
     showBoot(`Sideband couldn't start in this browser: ${msg.error}`);
-    for (const p of pending.values()) p.resolve({ status: 500, payload: { error: msg.error } });
-    pending.clear();
   } else if (msg.type === "job-done") {
     keepAwake(false);
   } else if (msg.type === "lost") {
@@ -37,7 +41,7 @@ worker.onmessage = (event) => {
   }
 };
 worker.onerror = (event) => {
-  fatal = event.message || "the engine stopped";
+  failRequests(event.message || "the engine stopped");
   showBoot(`Sideband couldn't start in this browser: ${fatal}`);
 };
 
@@ -60,6 +64,7 @@ export async function request(method, pathWithQuery, body, headers = {}) {
   let buffer = null;
   if (body instanceof Blob) buffer = await body.arrayBuffer();
   else if (body !== undefined && body !== null) buffer = new TextEncoder().encode(JSON.stringify(body)).buffer;
+  if (fatal) return { status: 500, payload: { error: fatal } };
   const id = nextId++;
   const filename = headers["X-Filename"] ? decodeURIComponent(headers["X-Filename"]) : "upload.json";
   return new Promise((resolve) => {

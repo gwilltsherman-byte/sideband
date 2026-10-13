@@ -40,6 +40,7 @@ FEATURE_LABELS = {
     "pop": "Popularity",
     "neg": "Similar to artists you skip",
     "agree": "Sources agree",
+    "novelty": "Adventure setting",
 }
 
 
@@ -75,11 +76,14 @@ class Candidate:
     popularity: float | None = None
     support: int = 0
     contributions: dict[str, float] = field(default_factory=dict)
+    evidence: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
             "key": self.key, "name": self.name, "score": round(self.score, 4),
             "match": round(self.percentile, 1), "because": self.because, "shared_tags": self.shared_tags,
+            "rank_percentile": round(self.percentile, 1), "rank_label": "Relative rank among available candidates",
+            "evidence": self.evidence,
             "tags": self.tags, "popularity": self.popularity, "support": self.support,
             "contributions": {FEATURE_LABELS[k]: round(v, 3) for k, v in self.contributions.items()},
         }
@@ -130,7 +134,8 @@ def score_pool(
     hops: int = 1,
 ) -> ScoredPool:
     """Score unknown artists adjacent to the listener's taste (``hops=2``: every unknown artist in the
-    graph, i.e. also neighbours-of-neighbours), plus any keys in ``include``."""
+    graph reachable from the listener, including neighbours-of-neighbours), plus any keys in
+    ``include`` that are not known or explicitly excluded."""
     seeds = {k: v for k, v in profile.positive_seeds().items() if k in kg.adj}
     recent = {k: v for k, v in profile.positive_seeds(recent=True).items() if k in kg.adj}
     negs = {k: v for k, v in profile.negative_seeds().items() if k in kg.adj}
@@ -138,16 +143,18 @@ def score_pool(
     seed_total = sum(seeds.values()) or 1.0
     recent_total = sum(recent.values()) or 1.0
 
+    exploration = max(0.0, min(1.0, params.exploration))
+    alpha = max(0.05, min(0.95, params.alpha * (1 - 0.5 * exploration)))
+    pi = kg.ppr(seeds, alpha=alpha) if seeds else {}
     pool: set[str] = set()
     if hops >= 2:
-        pool.update(c for c in kg.adj if c not in known)
+        # A previously searched, disconnected genre must not quietly become a personalised
+        # recommendation. Explicit genre search can still include those artists below.
+        pool.update(c for c, mass in pi.items() if mass > 0 and c not in known)
     else:
         for s in seeds:
             pool.update(c for c in kg.adj[s] if c not in known)
-    pool.update(k for k in include if k in kg.adj)
-
-    alpha = params.alpha * (1 - 0.5 * params.exploration)
-    pi = kg.ppr(seeds, alpha=alpha) if seeds else {}
+    pool.update(k for name in include if (k := artist_key(name)) in kg.adj and k not in known)
     idf = idf_weights(kg)
     utags = user_tag_profile(profile, kg, seeds, idf)
 
@@ -166,13 +173,14 @@ def score_pool(
         tv = tag_vector(kg.tags.get(c, {}), idf)
         tag_vecs[c] = tv
         pop = kg.popularity.get(c)
+        valid_pop = isinstance(pop, (int, float)) and not isinstance(pop, bool) and math.isfinite(pop) and pop >= 0
         raw_rows.append({
             "cf": math.log(cf + 1e-6),
             "cf_recent": math.log(cfr + 1e-6),
             "ppr": math.log(pi.get(c, 0.0) + 1e-12),
             "support": math.log1p(len(contrib)),
             "tag": cosine(utags, tv) if tv and utags else math.nan,
-            "pop": math.log10(1 + pop) if pop else math.nan,
+            "pop": math.log10(1 + pop) if valid_pop else math.nan,
             "neg": math.log1p(10 * neg),
             "agree": agree,
         })
@@ -194,25 +202,49 @@ def score_pool(
         z = {f: zcols[f][i] for f in FEATURES}
         contributions = {f: w[f] * z[f] for f in FEATURES if w[f]}
         score = sum(contributions.values())
-        if params.exploration:
-            score += params.exploration * sum(novelty_w[f] * z[f] for f in novelty_w)
+        if exploration:
+            novelty = exploration * sum(novelty_w[f] * z[f] for f in novelty_w)
+            # Novelty is a bounded rerank, so a metadata outlier cannot outweigh every taste
+            # signal. Keep it visible in the explanation rather than concealing its contribution.
+            novelty = max(-1.5, min(1.5, novelty))
+            score += novelty
+            contributions["novelty"] = novelty
         tv = tag_vecs[c]
         shared = sorted((t for t in tv if utags.get(t, 0) > 0), key=lambda t: -tv[t] * utags[t])[:3]
         because, support = meta[c]
         cands.append(Candidate(
             key=c, name=kg.names.get(c, c), raw=raw_rows[i], z=z, score=score, because=because,
             shared_tags=shared, tags=sorted(kg.tags.get(c, {}), key=lambda t: -kg.tags[c][t])[:5],
-            popularity=kg.popularity.get(c), support=support, contributions=contributions,
+            popularity=(kg.popularity[c] if isinstance(kg.popularity.get(c), (int, float))
+                        and math.isfinite(kg.popularity[c]) and kg.popularity[c] >= 0 else None),
+            support=support, contributions=contributions,
+            evidence={"direct_links": support,
+                      "source_agreement": round(raw_rows[i]["agree"], 2),
+                      "genre_overlap": bool(shared),
+                      "basis": "direct_links" if support else "indirect_graph" if pi.get(c, 0) > 0 else "genre_search",
+                      "calibrated": False},
         ))
     cands.sort(key=lambda x: -x.score)
     n = len(cands)
-    for rank, cand in enumerate(cands):
-        cand.percentile = 100.0 * (1 - rank / n) if n > 1 else 100.0
+    start = 0
+    while start < n:
+        end = start + 1
+        while end < n and math.isclose(cands[start].score, cands[end].score, abs_tol=1e-12):
+            end += 1
+        # Midpoint ranks give equal scores equal labels; a lone candidate is a 50th-percentile
+        # rank, not "100% likely to like". This remains a relative rank, never confidence.
+        percentile = 100.0 * (1 - (start + end) / (2 * n))
+        for cand in cands[start:end]:
+            cand.percentile = percentile
+        start = end
     return ScoredPool(cands, utags, tag_vecs)
 
 
 def diversify(pool: ScoredPool, kg: KnowledgeGraph, n: int, lam: float) -> list[Candidate]:
     """Greedy MMR: trade relevance against similarity to what is already on the list."""
+    if n <= 0:
+        return []
+    lam = max(0.0, min(0.8, lam))
     head = pool.candidates[: max(3 * n, 60)]
     if lam <= 0 or len(head) <= 1:
         return head[:n]

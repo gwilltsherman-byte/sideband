@@ -76,7 +76,7 @@ def test_api_roundtrip(server):
     assert st == 403  # DNS-rebinding guard
     st, page = None, None
     with urllib.request.urlopen(f"{server}/") as r:
-        assert b"musicfinder" in r.read().lower()
+        assert b"sideband" in r.read().lower()
 
 
 def test_api_evaluate_job(server):
@@ -89,7 +89,15 @@ def test_api_evaluate_job(server):
         time.sleep(0.5)
     assert job["error"] is None, job
     st, rep = call(f"{server}/api/evaluation")
-    assert rep["ok"] and rep["model"]["auc"] > 0.7
+    assert rep["ok"]
+    m, b = rep["model"], rep["baselines"]
+    assert m["recall@50"] > 2 * b["random"]["recall@50"]
+    assert m["recall@50"] > b["popularity"]["recall@50"]
+    assert min(m["auc_n"]) >= 2 and 0 <= m["auc"] <= 1
+    assert m["auc_ci"] and 0 <= m["auc_ci"][0] <= m["auc_ci"][1] <= 1
+    assert m["preference_available"] == [sum(m["auc_n"]),
+                                         rep["ground_truth"]["test_adopted"] + rep["ground_truth"]["test_rejected"]]
+    assert m["preference_available"][0] <= m["preference_available"][1]
 
 
 def test_build_fails_clearly_when_every_source_is_unreachable(tmp_path, history_rows):

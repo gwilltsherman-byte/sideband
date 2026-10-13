@@ -1,10 +1,9 @@
 """Turn raw Spotify plays into a quantitative model of the listener's taste.
 
-Every play is scored as *implicit feedback* (Hu, Koren & Volinsky, "Collaborative Filtering for
-Implicit Feedback Datasets", ICDM 2008): how much of the song was played, whether the listener
-deliberately chose it, and -- crucially -- whether they skipped it in the first 30 seconds.
-Spotify itself only counts a play as a "stream" after 30 s, and early skips are the strongest
-negative signal available in listening logs.
+Plays are *implicit feedback*: exposure and repetition do not prove preference (Hu, Koren &
+Volinsky, "Collaborative Filtering for Implicit Feedback Datasets", ICDM 2008). This app uses
+transparent heuristics for completion, deliberate selection and skips. An early skip can mean
+poor fit or a change of context; pauses, app closure and connection loss are kept neutral.
 
 Per artist we keep
 
@@ -22,6 +21,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from typing import Iterable
 
+from musicfinder.feedback import latest_by_artist
 from musicfinder.models import Feedback, LibraryItem, Play
 from musicfinder.normalize import artist_key, track_key
 
@@ -91,6 +91,7 @@ class ArtistTaste:
     picked: bool = False  # picked as a favourite in the app
     satisfaction: float = 0.5
     _days: set = field(default_factory=set, repr=False)
+    _feedback_bonus: float = field(default=0.0, repr=False)
 
     @property
     def affinity(self) -> float:
@@ -147,6 +148,8 @@ class TasteProfile:
         for a in self.artists.values():
             if a.banned or a.feedback == "dislike":
                 out[a.key] = 3.0
+            elif a.picked or a.feedback == "like":
+                continue  # the listener's explicit preference outweighs old/contextual skips
             elif a.early_skips >= 2 and a.streams == 0:
                 out[a.key] = math.log1p(a.early_skips)
             elif a.early_skips >= 3 and a.satisfaction < 0.35:
@@ -166,12 +169,14 @@ class TasteProfile:
 
     def top_artists(self, n: int = 50) -> list[ArtistTaste]:
         return sorted(
-            (a for a in self.artists.values() if a.affinity > 0 and not a.banned),
+            (a for a in self.artists.values() if a.affinity > 0 and not a.banned and a.feedback != "dislike"),
             key=lambda a: -a.affinity,
         )[:n]
 
     def top_tracks(self, n: int = 50) -> list[TrackTaste]:
-        return sorted((t for t in self.tracks.values() if t.affinity > 0 and not t.banned),
+        blocked = {a.key for a in self.artists.values() if a.banned or a.feedback == "dislike"}
+        return sorted((t for t in self.tracks.values()
+                       if t.affinity > 0 and not t.banned and t.artist_key not in blocked),
                       key=lambda t: -t.affinity)[:n]
 
     def diversity(self) -> float:
@@ -335,7 +340,6 @@ def build_profile(
             elif item.kind == "picked_artist":
                 picked.append(a)
             elif item.kind == "banned_track":
-                a.early_skips += 1
                 if item.track:
                     track(a, item.track, item.artist).banned = True
             elif item.kind in bonus:
@@ -352,8 +356,8 @@ def build_profile(
                 if not a.picked and a.key not in disliked_picks:
                     a.picked = True
                     a.banned = False  # picking overrides an artist hidden in Spotify long ago
-                    a.explicit += pick
-                    a.recent_engagement += pick
+                    a.explicit += max(pick, pick - a.engagement - a.explicit)
+                    a.recent_engagement += max(pick, pick - a.recent_engagement)
 
     prior = fit_beta_prior([(a.streams, a.early_skips) for a in artists.values()])
     for a in artists.values():
@@ -364,18 +368,25 @@ def build_profile(
         n_streams=n_streams, n_early_skips=n_skips, total_ms=total_ms,
         first=plays[0].ts if plays else None, last=plays[-1].ts if plays else None, formats=dict(formats),
     )
-    apply_feedback(profile, feedback)
+    apply_feedback(profile, (fb for fb in feedback if cutoff is None or fb.ts < cutoff))
     return profile
 
 
 def apply_feedback(profile: TasteProfile, feedback: Iterable[Feedback]) -> None:
     """Fold in-app ratings into the profile. Later ratings of the same artist override earlier ones."""
-    latest: dict[str, Feedback] = {}
-    for fb in feedback:
-        latest[fb.artist_key] = fb
+    latest = latest_by_artist(feedback)
     if not latest:
         return
-    top = sorted((a.affinity for a in profile.artists.values() if a.affinity > 0), reverse=True)[:50]
+    # Remove the previously applied adjustment before recomputing it. Applying the same ratings to
+    # a cached profile twice must not double their influence; a clear must undo the old like bonus.
+    for key in latest:
+        a = profile.artists.get(key)
+        if a is not None:
+            a.explicit -= a._feedback_bonus
+            a.recent_engagement -= a._feedback_bonus
+            a._feedback_bonus = 0.0
+    top = sorted((max(0.0, a.affinity - a._feedback_bonus) for a in profile.artists.values()
+                  if a.affinity > 0 and not a.banned and a.feedback != "dislike"), reverse=True)[:50]
     like_bonus = max(3.0, top[len(top) // 2]) if top else 3.0
     for key, fb in latest.items():
         a = profile.artists.get(key)
@@ -390,5 +401,8 @@ def apply_feedback(profile: TasteProfile, feedback: Iterable[Feedback]) -> None:
         # (a "Not for me" pick sets banned, which already outweighs any earlier rating)
         a.feedback = fb.verdict
         if fb.verdict == "like":
-            a.explicit += like_bonus
-            a.recent_engagement += like_bonus
+            bonus = max(like_bonus, like_bonus - a.engagement - a.explicit,
+                        like_bonus - a.recent_engagement)
+            a.explicit += bonus
+            a.recent_engagement += bonus
+            a._feedback_bonus = bonus
