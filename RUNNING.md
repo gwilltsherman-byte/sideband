@@ -1,29 +1,49 @@
 # Using Sideband
 
-Sideband's simplest setup is a permanently hosted web app. Open its public
-address in Safari and install it once. It can use cellular data or any internet
-connection; no home Wi-Fi, running Mac or Terminal is needed.
-
-The [current browser demo](https://gwilltsherman-byte.github.io/sideband/?demo=1)
-uses simulated listening data. Full live music lookup is prepared for Netlify,
-but is not deployed yet.
+[Open Sideband](https://sideband.netlify.app) in Safari. Sideband works with
+cellular data or any internet connection; no home Wi-Fi, running Mac or Terminal
+is needed.
 
 ## Install the hosted app
 
-Open the hosted app in Safari. On iPhone choose **Share > Add to Home Screen**.
-On a Mac with Safari web apps, choose **File > Add to Dock**. Open that new icon
-before importing your listening history. The installed app keeps its own data,
-which stays saved after you close it. Once the first download finishes, saved
-data can open offline; new music lookups need an internet connection.
+1. Open [sideband.netlify.app](https://sideband.netlify.app) in Safari.
+2. **iPhone:** tap **Share > Add to Home Screen**, then **Add**.
+   If **Open as Web App** appears, leave it on.
+3. **Mac with macOS Sonoma 14 or later:** choose **File > Add to Dock**, then **Add**.
+4. Open the new Sideband icon before entering favourites or importing history.
+
+The installed app keeps its own data, which stays saved after you close it.
+Once the first download finishes, saved data can open offline; new music
+lookups need an internet connection.
+
+## Save a backup or move to another device
 
 In **Setup > Backup and restore**, save a backup before changing devices or
 clearing app data. Restore that file in the installed app on the other device.
 The backup contains your picks, ratings, listening history and music map, but
-not credentials. Demo mode uses simulated data and does not save personal data.
+not credentials. Each device keeps its own data; it does not sync automatically.
 
-The published GitHub Pages address currently provides a demo. Live hosted
-lookups need the Netlify configuration described below; a running Mac or
-codespace is not required by that hosted setup.
+## Get your first recommendations
+
+In Setup, start without waiting for Spotify: paste favourite artists (one per
+line), switch to favourite songs (`Artist — Song`), or choose a playlist CSV/TSV
+with named artist and track columns. Review the preview, choose **Use this
+taste**, then **Find my music**. Plain TXT files work too. A list of links alone
+does not contain the music names needed by Sideband.
+
+Your existing picks and ratings are kept, and duplicate uploads do not count
+twice. The input is saved locally as your declared favourites, not invented
+listening history. Artist/song entry works even when the music lookup service
+is disconnected; finding new recommendations still needs that service.
+
+If you already have a Spotify export, add its ZIP or JSON files in the optional
+history section. **Improve from my history** then updates your map and checks
+personal settings using real listening dates and outcomes.
+
+You can also pick artists you like and choose **Find my music** before an export
+arrives. On For You, start with ten artists, listen, rate them, then choose
+**Apply ratings to my list**. You can undo a rating and choose 20 or 30 artists
+at a time; Sideband remembers your list size and adventurous setting.
 
 ## Optional local development on Mac
 
@@ -45,26 +65,6 @@ Updating pip first avoids older versions that cannot install this project.
 Open `http://127.0.0.1:8765` if the browser does not open automatically.
 Keep Terminal open. Control-C stops the server. Next time, return to the
 repository folder and run `.venv/bin/sideband serve`.
-
-In Setup, start without waiting for Spotify: paste favourite artists (one per
-line), switch to favourite songs (`Artist — Song`), or choose a playlist CSV/TSV
-with named artist and track columns. Review the preview, choose **Use this
-taste**, then **Find my music**. Plain TXT files work too. A list of links alone
-does not contain the music names needed by Sideband.
-
-Your existing picks and ratings are kept, and duplicate uploads do not count
-twice. The input is saved locally as your declared favourites, not invented
-listening history. Artist/song entry works even when the music lookup service
-is disconnected; finding new recommendations still needs that service.
-
-If you already have a Spotify export, add its ZIP or JSON files in the optional
-history section. **Improve from my history** then updates your map and checks
-personal settings using real listening dates and outcomes.
-
-You can also pick artists you like and choose **Find my music** before an export
-arrives. On For You, start with ten artists, listen, rate them, then choose
-**Apply ratings to my list**. You can undo a rating and choose 20 or 30 artists
-at a time; Sideband remembers your list size and adventurous setting.
 
 To try a simulated listener without network lookups:
 
