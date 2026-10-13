@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: sideband-lookups
+    runtime: node
+    plan: free
+    buildCommand: node --check server/serve.mjs
+    startCommand: node server/serve.mjs --relay-only
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: '22'
+      - key: FRONTEND_ORIGIN
+        value: https://gwilltsherman-byte.github.io

@@ -1,8 +1,8 @@
-// musicfinder single-page UI. Plain ES module, no build step.
+// Sideband single-page UI. Plain ES module, no build step.
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const main = $("#main");
-// The hosted (Netlify) build runs the engine inside the browser instead of talking to a local server.
+// The hosted  build runs the engine inside the browser instead of talking to a local server.
 const BROWSER = window.MUSICFINDER_MODE === "browser";
 const engine = BROWSER ? await import("./browser-api.js") : null;
 const WHERE = BROWSER ? "in this browser on this device" : "on this computer";
@@ -173,8 +173,8 @@ async function route() {
   } catch (err) {
     if (mine !== routeSeq) return;
     main.innerHTML = BROWSER
-      ? `<div class="empty"><h2>musicfinder couldn’t start</h2><p>Reload the page to try again. If it keeps happening, this browser may be too old to run it. (${esc(err.message)})</p></div>`
-      : `<div class="empty"><h2>Can’t reach musicfinder</h2><p>Is <code>musicfinder serve</code> still running? (${esc(err.message)})</p></div>`;
+      ? `<div class="empty"><h2>Sideband couldn’t start</h2><p>Reload the page to try again. If it keeps happening, this browser may be too old to run it. (${esc(err.message)})</p></div>`
+      : `<div class="empty"><h2>Can’t reach Sideband</h2><p>Is <code>Sideband serve</code> still running? (${esc(err.message)})</p></div>`;
     return;
   }
   if (mine !== routeSeq) return;
@@ -203,7 +203,7 @@ function renderBuildPrompt(reason) {
     <div class="empty">
       <h2>${running ? "Building your music map…" : "One more step: build your music map"}</h2>
       <p>${running ? "This reads similar-artist data around your favourites. The first run takes a few minutes; later runs come from the cache." : esc(reason || "")}</p>
-      ${running ? "" : `<p>musicfinder will look up artists similar to your favourites in public music data (${sourceNames()}), then rank every unfamiliar artist it finds.</p>
+      ${running ? "" : `<p>Sideband will look up artists similar to your favourites in public music data (${sourceNames()}), then rank every unfamiliar artist it finds.</p>
       <button class="primary" id="build-now">Build my music map</button>`}
     </div>`;
   jobButton($("#build-now"), "/api/build");
@@ -211,7 +211,7 @@ function renderBuildPrompt(reason) {
 
 function needsGraph() {
   if (state.graph_exists) return false;
-  renderBuildPrompt("Next, musicfinder maps the artists around your taste.");
+  renderBuildPrompt("Next, Sideband maps the artists around your taste.");
   return true;
 }
 
@@ -609,7 +609,7 @@ function dotWhisker(rows, { chance = null, label = "" } = {}) {
 
 function metricsTable(rep) {
   const rows = [
-    ["musicfinder (as chosen)", rep.model, true],
+    ["Sideband (as chosen)", rep.model, true],
     ["Same, default weights", rep.default_model],
     ["Similar-artists only", rep.baselines.similar_artists_only],
     ["Most popular first", rep.baselines.popularity],
@@ -627,26 +627,26 @@ function metricsTable(rep) {
 async function viewAccuracy() {
   const [rep, fb] = await Promise.all([api("/api/evaluation"), api("/api/feedback")]);
   const running = state.job.running && state.job.name === "evaluate";
-  const intro = `<p>musicfinder hides your most recent listening, predicts from everything before it, then checks the predictions against the new artists you actually went on to love or skip. Settings are chosen on an earlier window and graded on a later one they never saw.</p>`;
+  const intro = `<p>Sideband hides your most recent listening, predicts from everything before it, then checks the predictions against the new artists you actually went on to love or skip. Settings are chosen on an earlier window and graded on a later one they never saw.</p>`;
   const runBtn = `<button class="primary" id="run-eval" ${running || !state.plays ? "disabled" : ""}>${rep && rep.ok ? "Re-run the accuracy test" : "Run the accuracy test"}</button>`;
   const live = liveAccuracy(fb);
   if (!rep || !rep.ok) {
     main.innerHTML = `<div class="view-head"><div><h1>How accurate is it — for you?</h1>${intro}</div>
       <div>${runBtn}<p class="small muted">Takes a few minutes the first time: it maps two past versions of your taste.</p></div></div>
-      ${!state.plays ? `<div class="note"><p>The accuracy test replays your listening history, so it needs your Spotify export (see <a href="#setup">Setup</a>). Until that arrives, your Like / Not for me ratings below measure how accurate musicfinder is for you.</p></div>`
+      ${!state.plays ? `<div class="note"><p>The accuracy test replays your listening history, so it needs your Spotify export (see <a href="#setup">Setup</a>). Until that arrives, your Like / Not for me ratings below measure how accurate Sideband is for you.</p></div>`
         : rep && rep.reason ? `<div class="note"><p>${esc(rep.reason)}</p></div>` : ""}${live}`;
     jobButton($("#run-eval"), "/api/evaluate");
     return;
   }
   const b = rep.baselines;
   const recallRows = [
-    { name: "musicfinder", value: rep.model["recall@50"], ci: rep.model["recall@50_ci"], me: true },
+    { name: "Sideband", value: rep.model["recall@50"], ci: rep.model["recall@50_ci"], me: true },
     { name: "Similar-artists only", value: b.similar_artists_only["recall@50"] },
     { name: "Most popular first", value: b.popularity["recall@50"] },
     { name: "Random", value: b.random["recall@50"] },
   ];
   const aucRows = [
-    { name: "musicfinder", value: rep.model.auc, ci: rep.model.auc_ci, me: true },
+    { name: "Sideband", value: rep.model.auc, ci: rep.model.auc_ci, me: true },
     { name: "Similar-artists only", value: b.similar_artists_only.auc },
     { name: "Most popular first", value: b.popularity.auc },
     { name: "Random guess", value: 0.5 },
@@ -740,11 +740,11 @@ async function viewSetup() {
   if (mine !== routeSeq) return;
   main.innerHTML = `
     <div class="view-head"><div><h1>Find the music you’ll love — and see why.</h1>
-      <p>Start in a minute: name a few artists you love and musicfinder maps the music around them. Later, add your Spotify history and it learns from every play and skip, and measures its own accuracy on you.</p></div></div>
-    ${BROWSER && IOS && !STANDALONE && !state.demo ? `<div class="note"><p><b>On an iPhone, do this first:</b> tap Share → <b>Add to Home Screen</b>, then open musicfinder from the new icon and do the steps below there. The Home Screen app keeps its own copy of your data, separate from Safari, and Safari may delete website data after about a week without a visit.</p></div>` : ""}
+      <p>Start in a minute: name a few artists you love and Sideband maps the music around them. Later, add your Spotify history and it learns from every play and skip, and measures its own accuracy on you.</p></div></div>
+    ${BROWSER && IOS && !STANDALONE && !state.demo ? `<div class="note"><p><b>On an iPhone, do this first:</b> tap Share → <b>Add to Home Screen</b>, then open Sideband from the new icon and do the steps below there. The Home Screen app keeps its own copy of your data, separate from Safari, and Safari may delete website data after about a week without a visit.</p></div>` : ""}
     <ol class="steps">
       <li><div><h2>Pick artists you love</h2>
-        <p>Five to ten works best; mix the different kinds of music you like. Mark artists you can’t stand too, and musicfinder will steer away from their sound.</p>
+        <p>Five to ten works best; mix the different kinds of music you like. Mark artists you can’t stand too, and Sideband will steer away from their sound.</p>
         <form id="pick-form" class="picker" role="search" autocomplete="off"><label for="pick-q" class="small">Artist</label>
           <input id="pick-q" type="search" placeholder="Start typing an artist’s name" enterkeyhint="search" autocomplete="off" autocapitalize="off" spellcheck="false"></form>
         <ul class="pick-results" id="pick-results"></ul>
@@ -753,7 +753,7 @@ async function viewSetup() {
         <div class="row build-row"><button class="primary" id="build"></button>
           <span class="small muted" id="build-hint"></span></div></div></li>
       <li><div><h2>Optional: add your Spotify history</h2>
-        <p>For sharper predictions, ask Spotify for your <b>Extended streaming history</b> in its <a href="https://www.spotify.com/account/privacy/" target="_blank" rel="noopener">privacy settings</a>. It lists every play since you joined, including skips. Spotify can take a few days (at most 30) to send it. <b>You don’t need to wait:</b> use musicfinder now and add the file whenever it arrives. Your picks are kept.</p>
+        <p>For sharper predictions, ask Spotify for your <b>Extended streaming history</b> in its <a href="https://www.spotify.com/account/privacy/" target="_blank" rel="noopener">privacy settings</a>. It lists every play since you joined, including skips. Spotify can take a few days (at most 30) to send it. <b>You don’t need to wait:</b> use Sideband now and add the file whenever it arrives. Your picks are kept.</p>
         <label class="drop" id="drop" for="files"><strong>Drop my_spotify_data.zip, or the JSON files inside it</strong>
           <span class="muted">or ${BROWSER ? "tap" : "click"} to choose files. Everything stays ${WHERE}.</span></label>
         <input id="files" type="file" multiple accept=".zip,.json,application/json,application/zip" hidden>
@@ -863,7 +863,7 @@ async function viewSetup() {
   drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("#files").click(); } });
   drop.tabIndex = 0;
   $("#clear-data").addEventListener("click", async () => {
-    if (!confirm("Delete your picked artists and all imported listening data from musicfinder? (Your Spotify account is not affected.)")) return;
+    if (!confirm("Delete your picked artists and all imported listening data from Sideband? (Your Spotify account is not affected.)")) return;
     await api("/api/clear", { method: "POST", body: { what: "data" } });
     toast("Picks and listening data deleted.");
     route();
@@ -879,7 +879,6 @@ async function viewSetup() {
 
 if (BROWSER) {
   const footer = document.querySelector("footer");
-  if (footer) footer.textContent = "musicfinder runs inside your browser. Your picks and listening data stay on this device; only artist and song names pass through this site’s relay to public music services (Deezer, ListenBrainz, MusicBrainz, and Last.fm if this site has it set up).";
+  if (footer) footer.textContent = "Sideband runs inside your browser. Your picks and listening data stay on this device; only artist and song names pass through this site’s relay to public music services (Deezer, ListenBrainz, MusicBrainz, and Last.fm if this site has it set up).";
 }
 route();
-

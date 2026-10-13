@@ -1,4 +1,4 @@
-"""The hosted (Netlify) build: the relay function's tests, and an opt-in end-to-end run in a browser."""
+"""The hosted  build: the relay function's tests, and an opt-in end-to-end run in a browser."""
 
 import os
 import shutil

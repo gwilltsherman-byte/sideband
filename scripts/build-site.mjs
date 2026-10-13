@@ -1,10 +1,10 @@
-// Builds the hosted (Netlify) version of musicfinder into ./site
+// Builds the hosted  version of musicfinder into ./site
 //
 //   npm install && npm run build
 //
 // The site is static: the page, the Python package (run in the browser by Pyodide), and Pyodide
 // itself, copied from node_modules so the site doesn't depend on a third-party CDN. The only
-// server-side piece is netlify/functions/proxy.mjs, the relay to the music-data services.
+// server-side piece is server/proxy.mjs, the relay to the music-data services.
 
 import { createHash } from "node:crypto";
 import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -40,7 +40,7 @@ async function main() {
   try {
     pyodideVersion = JSON.parse(await readFile(path.join(pyodideDir, "package.json"), "utf8")).version;
   } catch {
-    throw new Error("Pyodide is missing: run `npm install` first (Netlify does this automatically).");
+    throw new Error("Pyodide is missing: run `npm install` first.");
   }
 
   await rm(out, { recursive: true, force: true });
@@ -72,15 +72,18 @@ async function main() {
   let html = await readFile(path.join(web, "index.html"), "utf8");
   const head = [
     `<script>window.MUSICFINDER_MODE = "browser"; window.MUSICFINDER_VERSION = "${version}";`
-      + ` window.MUSICFINDER_PYODIDE = "/pyodide/${pyodideVersion}/";</script>`,
-    `<link rel="manifest" href="/static/manifest.webmanifest">`,
-    `<link rel="apple-touch-icon" href="/static/icon-180.png">`,
+      + ` window.MUSICFINDER_PYODIDE = new URL("./pyodide/${pyodideVersion}/", location.href).href;`
+      + ` window.MUSICFINDER_RELAY = ${JSON.stringify(process.env.SIDEBAND_RELAY_URL || "")};</script>`,
+    `<link rel="manifest" href="./static/manifest.webmanifest">`,
+    `<link rel="apple-touch-icon" href="./static/icon-180.png">`,
     `<meta name="apple-mobile-web-app-capable" content="yes">`,
     `<meta name="mobile-web-app-capable" content="yes">`,
   ].join("\n  ");
   if (!html.includes("</head>")) throw new Error("index.html has no </head>");
+  html = html.replaceAll('="/static/', '="./static/');
   html = html.replace("</head>", `  ${head}\n</head>`);
   await writeFile(path.join(out, "index.html"), html);
+  await writeFile(path.join(out, ".nojekyll"), "");
 
   let bytes = 0;
   for (const f of PYODIDE_FILES) bytes += (await stat(path.join(pyodideOut, f))).size;

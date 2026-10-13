@@ -182,8 +182,8 @@ def cmd_serve(args) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="musicfinder", description="Find the music you'll love: from a few artists you name, and from your Spotify history.")
-    parser.add_argument("--version", action="version", version=f"musicfinder {__version__}")
+    parser = argparse.ArgumentParser(prog="sideband", description="Find the music you'll love: from a few artists you name, and from your Spotify history.")
+    parser.add_argument("--version", action="version", version=f"Sideband {__version__}")
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--home", help="data directory (default: ~/.musicfinder or $MUSICFINDER_HOME)")
     common.add_argument("--demo", action="store_true", help="use a simulated listener instead of your data")

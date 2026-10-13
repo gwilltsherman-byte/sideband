@@ -1,13 +1,13 @@
-// Relay from the musicfinder page to the public music-data APIs.
+// Relay from the Sideband page to the public music-data APIs.
 //
 // Browsers block a web page from reading most of these services directly (CORS), so the page asks
 // this function instead: GET /api/proxy?url=<https URL of an allowed API>. Only GET, and only the
-// specific API endpoints musicfinder uses, so it can't be used as a general-purpose proxy; browsers
+// specific API endpoints Sideband uses, so it can't be used as a general-purpose proxy; browsers
 // will not let other websites' pages use it (non-browser programs can, but only for those same public
 // endpoints). Nothing is stored or logged here.
 //
 // Last.fm needs an API key. Listeners never enter one: the site's owner may set LASTFM_API_KEY in the
-// Netlify site's environment variables, and the relay adds it to Last.fm requests here (the key never
+// lookup server's environment variables, and the relay adds it to Last.fm requests here (the key never
 // reaches the browser; GET /api/proxy?config=1 only tells the page whether there is one). Without it
 // the app uses the free sources only and sends nothing to Last.fm.
 //
@@ -25,7 +25,7 @@ const ALLOWED = {
 const LASTFM_METHODS = new Set(["artist.getsimilar", "artist.gettoptags", "artist.getinfo", "artist.gettoptracks",
   "track.getsimilar", "tag.gettopartists"]);
 // MusicBrainz and ListenBrainz ask every client to identify itself.
-const USER_AGENT = "musicfinder/0.1 ( https://github.com/gwilltsherman-byte/music )";
+const USER_AGENT = "Sideband/0.1 ( https://github.com/gwilltsherman-byte/sideband )";
 const TIMEOUT_MS = 9000;
 const MAX_BYTES = 2_000_000;
 
@@ -50,14 +50,13 @@ export function checkTarget(raw) {
   const prefixes = ALLOWED[target.hostname];
   if (target.protocol !== "https:" || target.username || target.password || target.port || !prefixes
       || !prefixes.some((p) => target.pathname.startsWith(p)) || target.pathname.includes("..")) {
-    return { error: "That address is not one of the music services musicfinder uses" };
+    return { error: "That address is not one of the music services Sideband uses" };
   }
   return { target };
 }
 
 function lastfmKey() {
-  const fromNetlify = globalThis.Netlify?.env?.get?.("LASTFM_API_KEY");
-  return (fromNetlify || process.env.LASTFM_API_KEY || "").trim();
+  return (process.env.LASTFM_API_KEY || "").trim();
 }
 
 export default async function proxy(req) {
@@ -65,7 +64,7 @@ export default async function proxy(req) {
   // Browsers label every request with where it came from; refuse other websites' pages.
   const site = req.headers.get("sec-fetch-site");
   if (site && site !== "same-origin" && site !== "none") {
-    return fail(403, "This relay only serves the musicfinder site it belongs to");
+    return fail(403, "This relay only serves the Sideband site it belongs to");
   }
   const params = new URL(req.url).searchParams;
   // The page asks once per visit which services this relay offers (only whether a key is set, never the key).
@@ -75,7 +74,7 @@ export default async function proxy(req) {
   if (target.hostname === "ws.audioscrobbler.com") {
     const methods = target.searchParams.getAll("method");
     if (methods.length !== 1 || !LASTFM_METHODS.has(methods[0])) {
-      return fail(400, "That Last.fm method is not one musicfinder uses");
+      return fail(400, "That Last.fm method is not one Sideband uses");
     }
     const key = lastfmKey();
     if (!key) return fail(503, "Last.fm is not set up on this site");

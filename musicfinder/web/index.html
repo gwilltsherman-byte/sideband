@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>musicfinder: find artists and songs</title>
+  <title>Sideband: find artists and songs</title>
   <meta name="description" content="Recommends artists and songs from your Spotify listening history, explains every pick, and measures its own accuracy on your data.">
   <meta name="theme-color" content="#f4f1ea" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#1b1a18" media="(prefers-color-scheme: dark)">
@@ -15,9 +15,9 @@
 </head>
 <body>
   <header class="masthead">
-    <a class="wordmark" href="#for-you" aria-label="musicfinder home">
+    <a class="wordmark" href="#for-you" aria-label="Sideband home">
       <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="15" fill="currentColor"/><circle cx="16" cy="16" r="6" fill="var(--sticker)"/><circle cx="16" cy="16" r="1.6" fill="currentColor"/></svg>
-      musicfinder
+      Sideband
     </a>
     <nav class="tabs" aria-label="Sections">
       <a href="#for-you">For you</a>
@@ -40,7 +40,8 @@
     <p class="loading">Loading…</p>
   </main>
   <footer>
-    musicfinder runs on your computer. Your picks and listening data stay in a local database; only artist and song names are sent to public music services (Deezer, ListenBrainz, MusicBrainz, and Last.fm if a key is set up) to look up similarity.
+    <a href="https://codespaces.new/gwilltsherman-byte/sideband">Open Sideband in GitHub Codespaces</a> · <a href="?demo=1">Try the demo</a><br>
+    Sideband runs on your computer. Your picks and listening data stay in a local database; only artist and song names are sent to public music services (Deezer, ListenBrainz, MusicBrainz, and Last.fm if a key is set up) to look up similarity.
   </footer>
   <div id="tooltip" class="tooltip" hidden></div>
   <div id="toast" class="toast" hidden role="status" aria-live="polite"></div>
@@ -48,4 +49,3 @@
   <script src="/static/app.js" type="module"></script>
 </body>
 </html>
-

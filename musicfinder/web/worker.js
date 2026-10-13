@@ -4,7 +4,9 @@
 const params = new URL(self.location.href).searchParams;
 const DEMO = params.get("demo") === "1";
 const VERSION = params.get("v") || "dev";
-const PYODIDE = params.get("pyodide") || "/pyodide/";
+const BASE = new URL("../", import.meta.url);
+const RELAY = params.get("relay") || new URL("api/proxy", BASE).href;
+const PYODIDE = params.get("pyodide") || new URL("../pyodide/", import.meta.url).href;
 
 // Requests per second per service: the same limits the desktop version uses.
 const RATES = {
@@ -94,10 +96,13 @@ async function becomeOwner() {
 // ---------------------------------------------------------------- start-up
 async function boot() {
   post({ type: "boot", stage: "Loading the music engine (first visit downloads about 6 MB)…" });
-  const ownership = becomeOwner();
+
   // Does this site's relay hold a Last.fm key? (Asked at run time, so it always matches the relay.)
-  const relayConfig = DEMO ? Promise.resolve({})
-    : fetch("/api/proxy?config=1").then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
+  const relayConfig = DEMO ? {} : await fetch(`${RELAY}?config=1`).then(async r => {
+    if (!r.ok) throw new Error("The music lookup service is not connected. Open Sideband in GitHub Codespaces from the README, or use ?demo=1 to try the demo.");
+    return r.json();
+  });
+  const ownership = becomeOwner();
   const { loadPyodide } = await import(`${PYODIDE}pyodide.mjs`);
   py = await loadPyodide({ indexURL: PYODIDE });
 
@@ -109,9 +114,9 @@ async function boot() {
     await syncfs(true);
   }
 
-  const manifest = await (await fetch(`/py/manifest.json?v=${VERSION}`)).json();
+  const manifest = await (await fetch(new URL(`py/manifest.json?v=${VERSION}`, BASE))).json();
   await Promise.all(manifest.files.map(async (file) => {
-    const res = await fetch(`/py/${file}?v=${manifest.version}`);
+    const res = await fetch(new URL(`py/${file}?v=${manifest.version}`, BASE));
     if (!res.ok) throw new Error(`Could not load ${file} (${res.status})`);
     const target = `/home/pyodide/${file}`;
     py.FS.mkdirTree(target.slice(0, target.lastIndexOf("/")));
@@ -120,7 +125,7 @@ async function boot() {
 
   if (DEMO) post({ type: "boot", stage: "Simulating a listener and a music catalogue (about 30 seconds)…" });
   py.runPython("import sys\nif '/home/pyodide' not in sys.path: sys.path.insert(0, '/home/pyodide')");
-  const lastfm = Boolean((await relayConfig).lastfm);
+  const lastfm = Boolean(relayConfig.lastfm);
   backend = py.runPython("from musicfinder.browser import BrowserBackend\n"
     + `BrowserBackend(demo=${DEMO ? "True" : "False"}, lastfm=${lastfm ? "True" : "False"})`);
   lastWrites = backend.writes(); // opening the database is not a change worth saving
@@ -156,7 +161,7 @@ async function fetchAll(items, onResult, onProgress) {
         let status = 0;
         let text = "";
         try {
-          const res = await fetch(`/api/proxy?url=${encodeURIComponent(item.url)}`);
+          const res = await fetch(`${RELAY}?url=${encodeURIComponent(item.url)}`);
           text = await res.text();
           // The relay's own failures are not answers from the music service: leave status 0 (retry later).
           status = res.headers.get("X-Relay-Error") ? 0 : res.status;

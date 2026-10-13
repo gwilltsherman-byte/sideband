@@ -15,7 +15,7 @@ from urllib.request import Request, urlopen
 from musicfinder import __version__
 
 DAY = 86_400.0
-USER_AGENT = f"musicfinder/{__version__} ( https://github.com/gwilltsherman-byte/music )"
+USER_AGENT = f"musicfinder/{__version__} ( https://github.com/gwilltsherman-byte/sideband )"
 
 # requests per second, per host -- at or below each service's published guidance
 DEFAULT_RATES = {

@@ -1,4 +1,4 @@
-"""Serve ./site the way Netlify does, with /api/proxy answered by the fake music services.
+"""Serve ./site the way the static host does, with /api/proxy answered by the fake music services.
 
     python tests/serve_site.py --port 8888 [--latency 0.08] [--lastfm-key KEY]
 

@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 
-import proxy, { checkTarget, config } from "../../netlify/functions/proxy.mjs";
+import proxy, { checkTarget, config } from "../../server/proxy.mjs";
 
 const realFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = realFetch; });
 
 const call = (url, init = {}) =>
-  proxy(new Request(`https://mysite.netlify.app/api/proxy?url=${encodeURIComponent(url)}`, init));
+  proxy(new Request(`https://sideband.example/api/proxy?url=${encodeURIComponent(url)}`, init));
 
 test("routes at /api/proxy", () => assert.equal(config.path, "/api/proxy"));
 
@@ -38,7 +38,7 @@ test("forwards GETs with an identifying User-Agent and passes status and body th
   assert.equal(res.status, 200);
   assert.equal(await res.text(), '{"data":[1]}');
   assert.equal(seen.target, "https://api.deezer.com/search/artist?q=x");
-  assert.match(seen.init.headers["User-Agent"], /^musicfinder\//);
+  assert.match(seen.init.headers["User-Agent"], /^Sideband\//);
   assert.equal(seen.init.redirect, "manual");
   assert.equal(res.headers.get("cache-control"), "no-store");
   assert.equal(res.headers.get("x-relay-error"), null); // genuine upstream answers are not marked
@@ -55,7 +55,7 @@ test("adds the site's Last.fm key on the server and allows only read-only Last.f
   const lfm = "https://ws.audioscrobbler.com/2.0/?method=artist.getsimilar&artist=Radiohead&api_key=relay&format=json";
 
   delete process.env.LASTFM_API_KEY;
-  const config = () => proxy(new Request("https://mysite.netlify.app/api/proxy?config=1")).then((r) => r.json());
+  const config = () => proxy(new Request("https://sideband.example/api/proxy?config=1")).then((r) => r.json());
   assert.deepEqual(await config(), { lastfm: false });
   let res = await call(lfm);
   assert.equal(res.status, 503);
@@ -85,7 +85,7 @@ test("refuses other websites, other methods, redirects and dead upstreams", asyn
   globalThis.fetch = async () => { throw new Error("should not be called"); };
   assert.equal((await call("https://api.deezer.com/artist/1", { headers: { "sec-fetch-site": "cross-site" } })).status, 403);
   assert.equal((await call("https://example.com/")).status, 400);
-  assert.equal((await proxy(new Request("https://mysite.netlify.app/api/proxy?url=x", { method: "POST" }))).status, 405);
+  assert.equal((await proxy(new Request("https://sideband.example/api/proxy?url=x", { method: "POST" }))).status, 405);
 
   globalThis.fetch = async () => new Response("", { status: 302, headers: { location: "https://example.com" } });
   assert.equal((await call("https://api.deezer.com/artist/1")).status, 502);

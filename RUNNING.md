@@ -1,4 +1,4 @@
-# Run musicfinder on Mac and iPhone
+# Run sideband on Mac and iPhone
 
 ## Mac
 
@@ -6,22 +6,22 @@ Install Python 3.10 or later. Apple's bundled Python may be older, so check
 `python3 --version` first. Use the installed Python 3.10+ executable below.
 
 ```sh
-git clone https://github.com/gwilltsherman-byte/music-clean.git
-cd music-clean
+git clone https://github.com/gwilltsherman-byte/sideband.git
+cd sideband
 python3 -m venv .venv
 .venv/bin/python -m pip install -e .
-.venv/bin/musicfinder serve
+.venv/bin/sideband serve
 ```
 
 Open `http://127.0.0.1:8765` if the browser does not open automatically.
 Keep Terminal open. Control-C stops the server. Next time, return to the
-repository folder and run `.venv/bin/musicfinder serve`.
+repository folder and run `.venv/bin/sideband serve`.
 
 In Setup, pick artists you like and choose Find my music. A Spotify export is
 optional. To try a simulated listener without network lookups:
 
 ```sh
-.venv/bin/musicfinder serve --demo
+.venv/bin/sideband serve --demo
 ```
 
 ## iPhone over your home Wi-Fi
@@ -29,7 +29,7 @@ optional. To try a simulated listener without network lookups:
 Stop the Mac server, then run:
 
 ```sh
-.venv/bin/musicfinder serve --phone
+.venv/bin/sideband serve --phone
 ```
 
 Keep the Mac awake and connect your iPhone to the same Wi-Fi. Open the full
@@ -43,15 +43,16 @@ Allow Python through the Mac's firewall if the phone cannot connect.
 
 ## GitHub hosting
 
-The source is on GitHub, but GitHub Pages cannot run the Python web server
-or the lookup relay. The browser build runs Python through Pyodide, but its
-live music lookups currently depend on `/api/proxy`, served by a host-specific
-relay function. Publishing
-those files to Pages alone leaves that relay missing.
+Open https://codespaces.new/gwilltsherman-byte/sideband, create a codespace, and
+wait for setup. Open the forwarded port 8765. The app and music lookup service
+start together; sign in with the same GitHub account on iPhone to open that link.
+Keep the port private. The app is available while the codespace runs.
 
-Use the Mac server and phone mode for the current app. A standalone Pages
-version needs a replacement lookup service or compatible data sources before
-its live recommendations will work. The offline demo can test the engine,
-but it is not a replacement for live lookups.
+For Pages, use the included Publish Sideband on Pages workflow. The browser
+engine works on Pages, but live lookups require the accompanying lookup server.
+Set `SIDEBAND_RELAY_URL` in repository Settings, Secrets and variables, Actions,
+Variables to the server's `/api/proxy` URL, then rerun the Pages workflow.
 
-The default branch is `main`.
+The optional Render blueprint serves only public music lookups. It does not
+store your listening history. A hosting account is required to deploy it.
+Use `?demo=1` for the Pages demo until that service is connected.

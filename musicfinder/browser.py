@@ -120,7 +120,7 @@ class Task:
 class BrowserBackend:
     def __init__(self, demo: bool = False, db_path: str = DB_PATH, transport=xhr_transport,
                  http_options: dict | None = None, demo_artists: int = 3000, lastfm: bool = False):
-        """``lastfm``: the site's relay adds its own Last.fm key (set by the site's owner on Netlify)."""
+        """``lastfm``: the site's relay adds its own Last.fm key (set by the site's owner on the lookup server)."""
         if demo:
             self.app = MusicFinder.demo_instance(n_artists=demo_artists, crawl_cfg=BROWSER_CRAWL)
         else:

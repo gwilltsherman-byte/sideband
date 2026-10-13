@@ -2,8 +2,12 @@
 
 const version = window.MUSICFINDER_VERSION || "dev";
 const demo = new URLSearchParams(location.search).get("demo") === "1";
-const worker = new Worker(`/static/worker.js?v=${encodeURIComponent(version)}${demo ? "&demo=1" : ""}`
-  + `&pyodide=${encodeURIComponent(window.MUSICFINDER_PYODIDE || "/pyodide/")}`, { type: "module" });
+const workerURL = new URL("./worker.js", import.meta.url);
+workerURL.searchParams.set("v", version);
+if (demo) workerURL.searchParams.set("demo", "1");
+workerURL.searchParams.set("pyodide", window.MUSICFINDER_PYODIDE || new URL("../pyodide/", import.meta.url).href);
+if (window.MUSICFINDER_RELAY) workerURL.searchParams.set("relay", window.MUSICFINDER_RELAY);
+const worker = new Worker(workerURL, { type: "module" });
 
 let nextId = 1;
 const pending = new Map();
@@ -23,7 +27,7 @@ worker.onmessage = (event) => {
     showBoot(msg.stage);
   } else if (msg.type === "fatal") {
     fatal = msg.error;
-    showBoot(`musicfinder couldn't start in this browser: ${msg.error}`);
+    showBoot(`Sideband couldn't start in this browser: ${msg.error}`);
     for (const p of pending.values()) p.resolve({ status: 500, payload: { error: msg.error } });
     pending.clear();
   } else if (msg.type === "job-done") {
@@ -34,17 +38,17 @@ worker.onmessage = (event) => {
 };
 worker.onerror = (event) => {
   fatal = event.message || "the engine stopped";
-  showBoot(`musicfinder couldn't start in this browser: ${fatal}`);
+  showBoot(`Sideband couldn't start in this browser: ${fatal}`);
 };
 
-// Another tab or window opened musicfinder and took over the saved data (see worker.js).
+// Another tab or window opened Sideband and took over the saved data (see worker.js).
 function showElsewhere() {
   if (document.getElementById("elsewhere")) return;
   const strip = document.createElement("div");
   strip.id = "elsewhere";
   strip.className = "strip demo";
   strip.setAttribute("role", "alert");
-  strip.innerHTML = "musicfinder was opened in another tab or window, which now has your data. "
+  strip.innerHTML = "Sideband was opened in another tab or window, which now has your data. "
     + '<button type="button" class="quiet">Use it here instead</button>';
   strip.querySelector("button").addEventListener("click", () => location.reload());
   document.querySelector(".masthead").after(strip);
