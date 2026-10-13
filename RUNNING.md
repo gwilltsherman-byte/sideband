@@ -6,8 +6,8 @@ Install Python 3.10 or later. Apple's bundled Python may be older, so check
 `python3 --version` first. Use the installed Python 3.10+ executable below.
 
 ```sh
-git clone https://github.com/gwilltsherman-byte/music.git
-cd music
+git clone https://github.com/gwilltsherman-byte/music-clean.git
+cd music-clean
 python3 -m venv .venv
 .venv/bin/python -m pip install -e .
 .venv/bin/musicfinder serve
@@ -54,12 +54,4 @@ version needs a replacement lookup service or compatible data sources before
 its live recommendations will work. The offline demo can test the engine,
 but it is not a replacement for live lookups.
 
-The default branch is `main`. If you cloned the old branch before it was
-renamed, update your local checkout:
-
-```sh
-git branch -m main
-git fetch origin
-git branch -u origin/main main
-git remote set-head origin -a
-```
+The default branch is `main`.
