@@ -4,56 +4,38 @@ Sideband helps you find artists and songs from music you already enjoy. **Start 
 
 Start with ten recommendations, listen, and mark **Like**, **Not for me** or **Already know**. Ratings immediately change the taste profile; **Apply ratings** updates the visible list without moving you elsewhere. You can undo a rating, and your adventurous setting and list length survive a reload.
 
-[Try the browser demo](https://gwilltsherman-byte.github.io/sideband/?demo=1) or follow the [Mac and iPhone guide](RUNNING.md) for live recommendations. You can start without an account or API key.
+## Install on iPhone or Mac
 
-If you have already installed Sideband, start it from the repository folder:
+The simplest way to use Sideband is its permanently hosted web app. It works
+with cellular data or any internet connection, so your Mac can be switched off.
 
-```sh
-.venv/bin/sideband serve
-```
+**Current availability:** [try the browser demo](https://gwilltsherman-byte.github.io/sideband/?demo=1)
+with simulated listening data. The full hosted app is prepared for Netlify, but
+live music lookup is not deployed yet. Installing the demo does not enable live
+recommendations or save personal listening data.
 
-The app opens in your browser. First installation and troubleshooting are in [RUNNING.md](RUNNING.md). The demo uses simulated listening data; live recommendations use the music services listed below.
+Once the full hosted app is available:
 
-## On your phone
+1. Open its public link in Safari.
+2. **iPhone:** tap **Share > Add to Home Screen**, then **Add**.
+   If **Open as Web App** appears, leave it on.
+3. **Mac with macOS Sonoma 14 or later:** choose **File > Add to Dock**, then **Add**.
+4. Open the new Sideband icon before entering favourites or importing history.
 
-### Use GitHub Codespaces
+Your picks, ratings and listening history stay saved on that device after you
+close the app. In **Setup > Backup and restore**, save a backup before changing
+devices or clearing app data, and restore it on the other device. Data does not
+sync automatically. After the first download, saved data can open offline;
+finding new music needs an internet connection and the hosted lookup service.
 
-Open [Sideband in Codespaces](https://codespaces.new/gwilltsherman-byte/sideband).
-Create the codespace, wait for setup, then open port 8765 from the Ports panel.
-The app starts automatically. Keep that port private and sign in to GitHub on
-your iPhone to use the forwarded address. Your listening history stays in your
-browser. The codespace must be running for live lookups.
+See the [installation guide](RUNNING.md#install-the-hosted-app) for details.
 
-### Hosting your own copy
+### Optional local development
 
-Pages serves the browser app and its Python engine. Live lookups also need a
-server because Deezer does not allow direct browser requests. The Pages workflow
-builds and deploys the frontend. Set the repository Actions variable
-`SIDEBAND_RELAY_URL` to the full lookup endpoint, for example
-`https://your-server.example/api/proxy`, then rerun that workflow.
-
-`server/serve.mjs` serves the whole app, or just the lookup endpoint with
-`--relay-only`. The optional `render.yaml` describes a lookup service.
-Hosting it there requires your own hosting account; free services can sleep
-between visits. Set `FRONTEND_ORIGIN` to your Pages origin and optionally
-`LASTFM_API_KEY` to add Last.fm data. The key stays on the server.
-
-The [published browser demo](https://gwilltsherman-byte.github.io/sideband/?demo=1) uses simulated data. For live recommendations, run Sideband on your computer or in Codespaces. If you host a copy on Pages, connect a lookup server before using live recommendations. If that server is unavailable, the app still opens: you can import history, view your taste and browse a saved recommendation map. New music lookups stay disabled with a link to the connected version.
-
-### Open your computer's copy on your phone
-
-sideband runs on a computer (Mac, Windows or Linux) and your phone opens it over your home Wi-Fi:
-
-```
-sideband serve --phone
-```
-
-It prints a private link such as `http://192.168.1.23:8765/?key=Ab3dE9fG`. Open that link in your phone's browser while the phone is on the same Wi-Fi as the computer. After the first visit the phone remembers the key, so you can bookmark the plain address or add it to your home screen. The computer has to stay on with sideband running.
-
-* Anyone on your network who has the link can see your listening data, so don't share it.
-* If the phone can't connect, allow Python through the computer's firewall. Windows usually asks the first time.
-* To try it straight away, run `sideband serve --demo --phone`.
-* **Android without a computer:** install [Termux](https://termux.dev), then run `pkg install python git`. Clone this repository, run `pip install -e .`, then `sideband serve --no-browser`, and open `http://127.0.0.1:8765` in Chrome.
+The [development guide](RUNNING.md#optional-local-development-on-mac) covers
+local servers, home Wi-Fi testing, Codespaces and hosting a copy. These are
+optional development setups; normal use of the hosted app does not require
+Terminal or a running computer.
 
 ## Prediction limits
 
