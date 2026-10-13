@@ -1,14 +1,16 @@
 # Sideband
 
-[Run on Mac and iPhone](RUNNING.md), including GitHub hosting options.
+I want Sideband to help you find artists and songs from music you already enjoy. Pick a few artists or import your Spotify listening history. Sideband learns from plays and skips, explains each match, suggests unfamiliar genres, and checks its predictions against your history.
 
-Recommend artists and songs from artists you like or a Spotify listening-history export. sideband uses plays and skips to update your taste profile, explains its recommendations, suggests unfamiliar genres, and tests predictions against your history. You can start by picking a few artists without an account or API key.
+[Try the browser demo](https://gwilltsherman-byte.github.io/sideband/?demo=1) or follow the [Mac and iPhone guide](RUNNING.md) for live recommendations. You can start without an account or API key.
 
+If you have already installed Sideband, start it from the repository folder:
+
+```sh
+.venv/bin/sideband serve
 ```
-pip install -e .            # Python 3.10+, no other dependencies
-sideband serve           # opens http://127.0.0.1:8765
-sideband serve --demo    # try it now with a simulated listener (no data or network needed)
-```
+
+The app opens in your browser. First installation and troubleshooting are in [RUNNING.md](RUNNING.md). The demo uses simulated listening data; live recommendations use the music services listed below.
 
 ## On your phone
 
@@ -20,7 +22,7 @@ The app starts automatically. Keep that port private and sign in to GitHub on
 your iPhone to use the forwarded address. Your listening history stays in your
 browser. The codespace must be running for live lookups.
 
-### GitHub Pages
+### Hosting your own copy
 
 Pages serves the browser app and its Python engine. Live lookups also need a
 server because Deezer does not allow direct browser requests. The Pages workflow
@@ -29,15 +31,14 @@ builds and deploys the frontend. Set the repository Actions variable
 `https://your-server.example/api/proxy`, then rerun that workflow.
 
 `server/serve.mjs` serves the whole app, or just the lookup endpoint with
-`--relay-only`. The optional `render.yaml` describes a free lookup service.
+`--relay-only`. The optional `render.yaml` describes a lookup service.
 Hosting it there requires your own hosting account; free services can sleep
 between visits. Set `FRONTEND_ORIGIN` to your Pages origin and optionally
 `LASTFM_API_KEY` to add Last.fm data. The key stays on the server.
 
-Until a lookup server is connected, the Pages link can run the simulated demo
-with `?demo=1`. Use Codespaces or the Mac server for live recommendations.
+The [published browser demo](https://gwilltsherman-byte.github.io/sideband/?demo=1) uses simulated data. For live recommendations, run Sideband on your computer or in Codespaces. If you host a copy on Pages, connect a lookup server before using live recommendations.
 
-### Or: run it on your computer and open it on your phone
+### Open your computer's copy on your phone
 
 sideband runs on a computer (Mac, Windows or Linux) and your phone opens it over your home Wi-Fi:
 
@@ -138,7 +139,7 @@ sideband explore [--tag "bossa nova"]
 sideband evaluate [--json]
 ```
 
-Data is stored in the `~/.sideband/` folder (`sideband.db` with settings and ratings, `sideband-data.db` with your listening history, `sideband-cache.db` with cached lookups). To use a different folder, pass `--home DIR` or set `MUSICFINDER_HOME`.
+Data is stored in the `~/.musicfinder/` folder (`musicfinder.db` with settings and ratings, `musicfinder-data.db` with your listening history, `musicfinder-cache.db` with cached lookups). To use a different folder, pass `--home DIR` or set `MUSICFINDER_HOME`.
 
 ## Privacy
 
@@ -158,3 +159,4 @@ MUSICFINDER_E2E=1 pytest tests/test_site.py      # ~12 min: the hosted site in a
 The engine is pure Python standard library. numpy is used only if it's installed, and only to speed up building the demo world. The hosted build adds Pyodide (an npm dependency) and plain JavaScript; there is no front-end build step.
 
 `tests/fake_upstream.py` imitates Last.fm, Deezer, MusicBrainz and ListenBrainz using the simulated world. Tests use it to exercise the real API clients, and to check that the browser's parallel prefetch plan covers every request (`tests/test_live_path.py`).
+

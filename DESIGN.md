@@ -1,7 +1,7 @@
 # Web interface
 
-The interface uses record-shop labels, crate dividers and liner notes as visual
-references. Recommendations include the signals that contributed to each match.
+I use record-shop labels, crate dividers and liner notes as visual references
+for Sideband's interface. Recommendations include the signals that contributed to each match.
 
 ## Recommendation meter
 
@@ -23,8 +23,9 @@ and `#D9653C` in dark mode.
 
 ## Layout conventions
 
-Use flat surfaces and a single level of cards. Icons use SVG rather than emoji.
+For interface contributions, use flat surfaces and a single level of cards. Icons use SVG rather than emoji.
 Charts use one scale per axis and keep labels readable without labelling every
 mark. Reserve evidence colours for data. Published copy should describe features
 the app has; testimonials and usage counts need a source.
+
 
