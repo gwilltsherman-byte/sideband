@@ -1,8 +1,12 @@
 # Using Sideband
 
-[Try the browser demo](https://gwilltsherman-byte.github.io/sideband/?demo=1)
-on your phone or computer. It uses simulated listening data. For live music
-recommendations, run Sideband on your Mac or in GitHub Codespaces.
+Sideband's simplest setup is a permanently hosted web app. Open its public
+address in Safari and install it once. It can use cellular data or any internet
+connection; no home Wi-Fi, running Mac or Terminal is needed.
+
+The [current browser demo](https://gwilltsherman-byte.github.io/sideband/?demo=1)
+uses simulated listening data. Full live music lookup is prepared for Netlify,
+but is not deployed yet.
 
 ## Install the hosted app
 
@@ -21,7 +25,7 @@ The published GitHub Pages address currently provides a demo. Live hosted
 lookups need the Netlify configuration described below; a running Mac or
 codespace is not required by that hosted setup.
 
-## First installation on Mac
+## Optional local development on Mac
 
 Install Python 3.10 or later. Apple's bundled Python may be older, so check
 `python3 --version` first. Use the installed Python 3.10+ executable below.
@@ -59,7 +63,7 @@ To try a simulated listener without network lookups:
 .venv/bin/sideband serve --demo
 ```
 
-## iPhone over your home Wi-Fi
+## Optional testing over home Wi-Fi
 
 Stop the Mac server, then run:
 
@@ -76,7 +80,7 @@ You can bookmark the link or choose Share, Add to Home Screen. This copy
 still runs on the Mac; the icon does not make it independent of the Mac.
 Allow Python through the Mac's firewall if the phone cannot connect.
 
-## Run in GitHub Codespaces
+## Optional development in GitHub Codespaces
 
 Open https://codespaces.new/gwilltsherman-byte/sideband, create a codespace, and
 wait for setup. Open the forwarded port 8765. The app and music lookup service
