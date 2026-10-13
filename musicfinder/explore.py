@@ -3,8 +3,9 @@
 Exploration is framed as a multi-armed bandit (explore vs. exploit): every unfamiliar genre near
 your taste is an "arm" with a Beta posterior over "will you like music from here?". Its prior mean
 comes from how well that genre's best artists score for you; your thumbs-up/down update it. Genres
-are ordered by Thompson sampling (Thompson 1933; Chapelle & Li 2011), which naturally mixes
-promising genres with uncertain ones and stops showing genres you keep rejecting.
+are ordered by Thompson sampling (Thompson 1933; Chapelle & Li 2011), which mixes promising genres
+with uncertain ones. Its hand-chosen prior and selectively collected votes guide exploration; they
+are not a calibrated forecast. Rejected genres become less likely, not forbidden.
 
 Within a genre we show *gateway artists*: the members of that genre that sit closest to what you
 already love, which is the most reliable way into an unfamiliar style.
@@ -17,6 +18,7 @@ import random
 from dataclasses import dataclass, field
 from typing import Iterable
 
+from musicfinder.feedback import latest_by_artist
 from musicfinder.graph import KnowledgeGraph, cosine
 from musicfinder.models import Feedback
 from musicfinder.recommender import Candidate, ScoredPool
@@ -32,6 +34,8 @@ def genre_shares(profile: TasteProfile, kg: KnowledgeGraph, seeds: dict[str, flo
     for s, w in seeds.items():
         tags = kg.tags.get(s) or {}
         total = sum(tags.values())
+        if total <= 0:
+            continue
         for t, x in tags.items():
             acc[t] = acc.get(t, 0.0) + w * x / total
     z = sum(acc.values())
@@ -63,6 +67,7 @@ class Territory:
             "fit": round(self.affinity, 3),
             "distance": round(self.distance, 3),
             "predicted_like_rate": round(self.posterior_mean, 3),
+            "estimate_kind": "exploration_heuristic", "calibrated": False,
             "likes": self.likes,
             "dislikes": self.dislikes,
             "related_genres_you_know": self.neighbours,
@@ -72,10 +77,11 @@ class Territory:
 
 def territory_feedback(feedback: Iterable[Feedback]) -> dict[str, tuple[int, int]]:
     out: dict[str, list[int]] = {}
-    for fb in feedback:
+    for fb in latest_by_artist(feedback).values():
         tag = (fb.context or {}).get("territory")
-        if not tag or fb.verdict not in ("like", "dislike"):
+        if not isinstance(tag, str) or not tag.strip() or fb.verdict not in ("like", "dislike"):
             continue
+        tag = tag.strip().casefold()
         rec = out.setdefault(tag, [0, 0])
         rec[0 if fb.verdict == "like" else 1] += 1
     return {k: (v[0], v[1]) for k, v in out.items()}
@@ -91,6 +97,8 @@ def territories(
     min_artists: int = 3,
     rng: random.Random | None = None,
 ) -> list[Territory]:
+    if n <= 0 or per_territory <= 0:
+        return []
     rng = rng or random.Random()
     shares = genre_shares(profile, kg)
     fb = territory_feedback(feedback)

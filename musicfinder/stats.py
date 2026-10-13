@@ -76,7 +76,7 @@ def bootstrap_ci(stat: Callable[[list], float | None], items: list, n: int = 100
 
 
 def auc_ci(pos: list[float], neg: list[float], n: int = 1000, seed: int = 0) -> tuple[float, float] | None:
-    if len(pos) < 2 or len(neg) < 2:
+    if len(pos) < 2 or len(neg) < 2 or n <= 0:
         return None
     rng = random.Random(seed)
     vals = []

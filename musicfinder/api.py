@@ -44,10 +44,11 @@ def dispatch_steps(app: MusicFinder, method: str, path: str, query: dict[str, li
                    start_job=None) -> Steps[Response]:
     """Handle one API request; returns (HTTP status, JSON-serialisable payload).
 
-    ``start_job(name)`` starts a background job ("build" or "evaluate") and returns whether it
+    ``start_job(name)`` starts a background job ("build", "evaluate" or "prepare") and returns whether it
     started; it defaults to the app's threaded jobs.
     """
-    start_job = start_job or (lambda name: app.start_build() if name == "build" else app.start_evaluation())
+    start_job = start_job or (lambda name: {"build": app.start_build, "evaluate": app.start_evaluation,
+                                         "prepare": app.start_prepare}[name]())
     try:
         if method == "GET":
             if path == "/api/state":
@@ -83,8 +84,8 @@ def dispatch_steps(app: MusicFinder, method: str, path: str, query: dict[str, li
             data = json.loads(body.decode("utf-8")) if body else {}
             if not isinstance(data, dict):
                 raise ValueError("Expected a JSON object")
-            if path in ("/api/build", "/api/evaluate"):
-                started = start_job("build" if path == "/api/build" else "evaluate")
+            if path in ("/api/build", "/api/evaluate", "/api/prepare"):
+                started = start_job(path.rsplit("/", 1)[-1])
                 return 200, {"started": started, "job": app.job.to_dict()}
             if path == "/api/feedback":
                 return 200, (yield from app.add_feedback_steps(

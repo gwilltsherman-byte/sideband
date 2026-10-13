@@ -37,12 +37,12 @@ BROWSER_CRAWL = CrawlConfig(seeds=50, recent_seeds=15, negative_seeds=15, expand
                             explore_candidates=90, workers=1)
 
 
-def xhr_transport(url: str, headers: dict, timeout: float) -> tuple[int, bytes]:
+def xhr_transport(url: str, headers: dict, timeout: float, proxy_prefix: str = PROXY) -> tuple[int, bytes]:
     """Synchronous GET through the site's relay (only possible inside a Web Worker)."""
     from js import XMLHttpRequest  # type: ignore[import-not-found]  # provided by Pyodide
 
     req = XMLHttpRequest.new()
-    req.open("GET", PROXY + quote(url, safe=""), False)
+    req.open("GET", proxy_prefix + quote(url, safe=""), False)
     try:
         req.timeout = int(timeout * 1000)
     except Exception:  # some engines refuse timeouts on synchronous requests
@@ -119,11 +119,15 @@ class Task:
 
 class BrowserBackend:
     def __init__(self, demo: bool = False, db_path: str = DB_PATH, transport=xhr_transport,
-                 http_options: dict | None = None, demo_artists: int = 3000, lastfm: bool = False):
+                 http_options: dict | None = None, demo_artists: int = 3000, lastfm: bool = False,
+                 lookup_available: bool = True, relay_url: str = "/api/proxy"):
         """``lastfm``: the site's relay adds its own Last.fm key (set by the site's owner on the lookup server)."""
         if demo:
             self.app = MusicFinder.demo_instance(n_artists=demo_artists, crawl_cfg=BROWSER_CRAWL)
         else:
+            if transport is xhr_transport:
+                prefix = relay_url + ("&" if "?" in relay_url else "?") + "url="
+                transport = lambda url, headers, timeout: xhr_transport(url, headers, timeout, prefix)
             store = Store(db_path)
             if store.get_setting("lastfm_api_key"):
                 store.set_setting("lastfm_api_key", "")  # earlier versions asked listeners for a key: forget it
@@ -131,6 +135,7 @@ class BrowserBackend:
                                    http_options=http_options, lastfm_key=RELAY_KEY if lastfm else "")
         self.job_task: Task | None = None
         self._new_job: Task | None = None
+        self.app.lookup_available = bool(demo or lookup_available)
 
     def _knowledge(self):
         return self.app.knowledge
@@ -151,7 +156,8 @@ class BrowserBackend:
         if self.job_task is not None and not self.job_task.finished:
             return False
         self.app.job = Job(name=name, running=True, started=time.time(), step="Starting…")
-        inner = self.app.build_graph_steps() if name == "build" else self.app.evaluate_steps()
+        inner = {"build": self.app.build_graph_steps, "evaluate": self.app.evaluate_steps,
+                 "prepare": self.app.prepare_steps}[name]()
         self.job_task = self._new_job = Task(self._job(inner), self._knowledge)
         return True
 

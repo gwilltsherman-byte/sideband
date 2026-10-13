@@ -1,9 +1,10 @@
 """Live accuracy: how often you actually like what musicfinder shows you, with honest error bars.
 
-Backtests can only grade artists you happened to hear. Your thumbs-up/down on recommendations are
-the real-world test: the like rate is reported with a Wilson 95% interval, broken down by how
+Backtests can only grade artists you happened to hear. Your thumbs-up/down describe the artists you
+chose to rate: the like rate is reported with a Wilson 95% interval, broken down by how
 adventurous the setting was, and once there are enough ratings the match score is calibrated into a
-probability with Platt scaling (a 1-feature logistic regression of 'liked' on match score).
+rough in-sample estimate with Platt scaling (a 1-feature logistic regression of 'liked' on rank).
+This is not an unbiased accuracy measure or a guarantee about the next artist.
 """
 
 from __future__ import annotations
@@ -26,9 +27,12 @@ def _rate(likes: int, n: int) -> dict:
 
 
 def latest_by_artist(feedback: Iterable[Feedback]) -> dict[str, Feedback]:
+    """One current verdict per artist, ordered by event time rather than import/list order."""
     out: dict[str, Feedback] = {}
     for fb in feedback:
-        out[fb.artist_key] = fb
+        key = fb.artist_key
+        if key and (key not in out or fb.ts >= out[key].ts):
+            out[key] = fb
     return out
 
 
@@ -44,7 +48,7 @@ def feedback_stats(feedback: Iterable[Feedback]) -> dict:
         rec[0] += f.verdict == "like"
         rec[1] += 1
         e = (f.context or {}).get("exploration")
-        if isinstance(e, (int, float)):
+        if isinstance(e, (int, float)) and not isinstance(e, bool) and math.isfinite(e) and 0 <= e <= 1:
             bucket = "safe (0–0.33)" if e < 0.34 else "balanced (0.34–0.66)" if e < 0.67 else "adventurous (0.67–1)"
             rec = by_exp.setdefault(bucket, [0, 0])
             rec[0] += f.verdict == "like"
@@ -56,19 +60,25 @@ def feedback_stats(feedback: Iterable[Feedback]) -> dict:
 
 
 def calibration(feedback: Iterable[Feedback]) -> dict | None:
-    """Platt scaling: P(like | match) = sigmoid(a * (match/100) + b), fitted once there is enough data."""
-    pts = [((f.context or {}).get("match"), 1 if f.verdict == "like" else 0) for f in feedback
+    """Provisional in-sample fit; ratings are self-selected and the rank is not a probability."""
+    pts = [((f.context or {}).get("match"), 1 if f.verdict == "like" else 0)
+           for f in latest_by_artist(feedback).values()
            if f.verdict in ("like", "dislike")]
-    pts = [(m / 100.0, y) for m, y in pts if isinstance(m, (int, float))]
+    pts = [(m / 100.0, y) for m, y in pts
+           if isinstance(m, (int, float)) and not isinstance(m, bool) and math.isfinite(m) and 0 <= m <= 100]
     n_pos = sum(y for _, y in pts)
-    if len(pts) < MIN_FOR_CALIBRATION or n_pos < 3 or len(pts) - n_pos < 3:
+    if (len(pts) < MIN_FOR_CALIBRATION or n_pos < 3 or len(pts) - n_pos < 3
+            or max((m for m, _ in pts), default=0) - min((m for m, _ in pts), default=0) < 0.2):
         return None
     (a,), b = fit_logistic([[m] for m, _ in pts], [y for _, y in pts], prior_mean=[0.0], prior_precision=0.1)
-    return {"a": round(a, 4), "b": round(b, 4), "n": len(pts)}
+    if not math.isfinite(a) or not math.isfinite(b) or a <= 0:
+        return None  # these ratings do not support an increasing rank-to-like mapping
+    return {"a": round(a, 4), "b": round(b, 4), "n": len(pts), "kind": "in_sample_estimate",
+            "validated": False, "basis": "Latest self-selected artist ratings; not a held-out forecast"}
 
 
 def like_probability(match: float, cal: dict | None) -> float | None:
-    if not cal:
+    if not cal or not math.isfinite(match) or not 0 <= match <= 100:
         return None
     z = cal["a"] * match / 100.0 + cal["b"]
     return 1.0 / (1.0 + math.exp(-max(-35.0, min(35.0, z))))

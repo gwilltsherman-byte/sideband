@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import random
 import threading
@@ -80,6 +81,7 @@ class MusicFinder:
         self._transport = transport  # how web requests are made (the browser build supplies its own)
         self._http_options = http_options or {}
         self.demo = demo
+        self.lookup_available = True
         self.crawl_cfg = crawl_cfg
         self.eval_cfg = eval_cfg
         self._knowledge_override = knowledge
@@ -96,6 +98,8 @@ class MusicFinder:
         self._pool_cache: tuple[tuple, ScoredPool] | None = None
         self._version = 0  # bumped whenever anything that affects scoring changes
         self._data_generation = 0  # bumped whenever the map's inputs change (picks, imports, sources)
+        self._history_signature_cache: str | None = None
+        self._reset_generation = 0  # deletion cancels installation of artifacts from an earlier job
 
     # ---- construction helpers -------------------------------------------------------------------
     @classmethod
@@ -148,6 +152,7 @@ class MusicFinder:
             if use_listenbrainz is not None:
                 self.store.set_setting("use_listenbrainz", bool(use_listenbrainz))
             self._knowledge = None
+            self._history_signature_cache = None
             self._data_generation += 1
             self._set_stale(True)
         return self.settings()
@@ -159,6 +164,7 @@ class MusicFinder:
                 self._data_generation += 1  # a build that started earlier no longer covers everything
             self._version += 1
             self._plays = None
+            self._history_signature_cache = None
             self._library = None
             self._profile = None
             self._pool_cache = None
@@ -200,17 +206,20 @@ class MusicFinder:
     def _store_import(self, res: ImportResult) -> dict:
         added_plays = self.store.add_plays(res.plays)
         added_lib = self.store.add_library(res.library)
-        self._invalidate(graph=True)
+        if added_plays or added_lib:
+            self._invalidate(graph=True)
         summary = res.summary()
         summary.update({"new_plays_added": added_plays, "new_library_items_added": added_lib})
         return summary
 
     def clear(self, what: str = "data") -> None:
         if what in ("data", "all"):
+            with self._lock:
+                self._reset_generation += 1
             self.store.clear_listening_data()
         if what in ("feedback", "all"):
             self.store.clear_feedback()
-        if what == "all":
+        if what in ("data", "all"):
             self.store.set_setting("model", None)
             self.store.set_setting("evaluation", None)
         if what in ("data", "all"):  # deleting ratings keeps the map (it is only marked out of date)
@@ -243,6 +252,7 @@ class MusicFinder:
         q = " ".join(query.split())[:100]
         if not q:
             return {"query": q, "items": []}
+        self._require_lookup()
         yield Need("search_artists", [q], "Searching")
         finder = getattr(self.knowledge, "search_artists", None)
         try:
@@ -327,11 +337,21 @@ class MusicFinder:
     def graph_ready(self) -> bool:
         return self._current_kg() is not None and not self._graph_stale
 
+    def _require_lookup(self) -> None:
+        if not self.lookup_available:
+            raise Unavailable("Music lookups are not connected in this copy. Your history and saved results are still available. "
+                              "Open Sideband in Codespaces or run it on your computer for new recommendations.")
+
     def build_graph(self, progress: Callable[[str, int, int], None] | None = None) -> KnowledgeGraph:
         return run(self.build_graph_steps(progress))
 
     def build_graph_steps(self, progress: Callable[[str, int, int], None] | None = None) -> Steps[KnowledgeGraph]:
+        self._require_lookup()
+        reset = self._reset_generation
         generation = self._data_generation
+        retry = getattr(self.knowledge, "retry_unavailable", None)
+        if retry:
+            retry()
         profile = self.profile()
         if not profile.positive_seeds(1):
             raise NotReady("Pick at least one artist you love (or import your Spotify data) first.")
@@ -345,6 +365,8 @@ class MusicFinder:
                 + ". Check your internet connection (and the Last.fm key, if you set one), then try again."
             )
         with self._lock:
+            if self._reset_generation != reset:
+                return kg  # history was deleted while lookups ran: never republish its map
             self._kg = kg
             self._kg_loaded = True
             # Picks or imports made while this ran are not in it: keep offering an update.
@@ -365,6 +387,74 @@ class MusicFinder:
 
     def start_evaluation(self) -> bool:
         return self.start_job("evaluate", self.evaluate)
+
+    def start_prepare(self) -> bool:
+        return self.start_job("prepare", self.prepare)
+
+    def history_signature(self) -> str:
+        """Identify the reconciled history and evaluation protocol, without storing its contents twice."""
+        with self._lock:
+            if self._history_signature_cache is None:
+                digest = hashlib.sha256(b"sideband-history-model-v2\n")
+                digest.update(repr((self.settings(), self.eval_cfg, self.crawl_cfg)).encode("utf-8"))
+                for p in self.plays():
+                    digest.update(repr((p.ts.isoformat(), p.artist_key, p.track_key, p.ms_played,
+                                        p.reason_start, p.reason_end, p.skipped, p.shuffle, p.fmt)).encode("utf-8"))
+                    digest.update(b"\n")
+                self._history_signature_cache = digest.hexdigest()
+            return self._history_signature_cache
+
+    def personalization_status(self) -> dict:
+        plays = self.plays()
+        first = min((p.ts for p in plays), default=None)
+        last = max((p.ts for p in plays), default=None)
+        days = (last - first).days if first and last else 0
+        can_evaluate = len(plays) >= 100 and days >= self.eval_cfg.min_span_days
+        signature = self.history_signature()
+        report = self.evaluation() or {}
+        model = self.store.get_setting("model") or {}
+        tested = bool(plays and report.get("history_signature") == signature)
+        current = bool(plays and model.get("history_signature") == signature)
+        if not plays:
+            status, action = "picks", "prepare" if self.has_data() and not self.graph_ready() else "import"
+            reason = "Import listening history to learn from your plays and skips, or start with favourite artists."
+        elif not self.graph_ready():
+            status, action = "needs_update", "prepare"
+            reason = "Update recommendations to include your latest history and favourites."
+        elif current:
+            status, action = "ready", "listen"
+            reason = "Your personal settings were checked on separate parts of this history. Ratings also update your taste."
+        elif not can_evaluate:
+            status, action = "limited", "import"
+            reason = (f"Your plays already shape recommendations. Personal settings need at least 100 plays across "
+                      f"{self.eval_cfg.min_span_days} days; you have {len(plays):,} plays across {days} days.")
+        elif tested:
+            status, action = "limited", "listen"
+            reason = "This history was tested, but it did not support a reliable settings change. Your plays and skips still shape recommendations."
+        else:
+            status, action = "history", "prepare"
+            reason = "Test personal settings against this history, then use a change only when validation supports it."
+        return {"history_plays": len(plays), "history_days": days,
+                "first": first.date().isoformat() if first else None,
+                "last": last.date().isoformat() if last else None,
+                "has_skip_data": any(p.fmt == "extended" for p in plays),
+                "can_evaluate": can_evaluate, "tested_current": tested, "model_current": current,
+                "status": status, "next_action": action, "reason": reason}
+
+    def prepare(self, progress: Callable[[str, int, int], None] | None = None) -> dict:
+        return run(self.prepare_steps(progress))
+
+    def prepare_steps(self, progress: Callable[[str, int, int], None] | None = None) -> Steps[dict]:
+        """Bring recommendations up to date and test new eligible history once, under one job."""
+        reset = self._reset_generation
+        if not self.graph_ready():
+            yield from self.build_graph_steps(progress)
+        if self._reset_generation != reset:
+            return self.personalization_status()
+        status = self.personalization_status()
+        if status["can_evaluate"] and not status["tested_current"]:
+            yield from self.evaluate_steps(progress)
+        return self.personalization_status()
 
     # ---- recommendations ------------------------------------------------------------------------
     def _pool(self, exploration: float, hops: int = 1) -> ScoredPool:
@@ -403,6 +493,7 @@ class MusicFinder:
         return run(self.songs_steps(exploration))
 
     def songs_steps(self, exploration: float = 0.0) -> Steps[dict]:
+        self._require_lookup()
         pool = self._pool(exploration)
         sp = self.model().scoring(exploration)
         picks = diversify(pool, self.graph(), 20, min(0.8, sp.diversity + 0.45 * exploration))
@@ -429,6 +520,7 @@ class MusicFinder:
         return run(self.explore_tag_steps(tag, n))
 
     def explore_tag_steps(self, tag: str, n: int = 12) -> Steps[dict]:
+        self._require_lookup()
         tag = tag.strip()
         if not tag:
             raise ValueError("Enter a genre or style to explore.")
@@ -459,11 +551,13 @@ class MusicFinder:
         return run(self.artist_tracks_steps(name, limit))
 
     def artist_tracks_steps(self, name: str, limit: int = 5) -> Steps[list[dict]]:
+        self._require_lookup()
         yield Need("top_tracks", [(name, limit)], "Looking up songs")
         tops = self.knowledge.top_tracks(name, limit)
         return [{"title": t.title, "artist": t.artist or name, "link": t.link} for t in tops]
 
     def preview(self, artist: str, track: str) -> dict | None:
+        self._require_lookup()
         info = self.knowledge.preview(artist, track)
         if not info:
             return None
@@ -486,7 +580,7 @@ class MusicFinder:
             self._pool_cache = None
             self._version += 1
         kg = self._current_kg()
-        if kg is not None and verdict in ("like", "dislike"):
+        if kg is not None and self.lookup_available and verdict in ("like", "dislike"):
             try:  # one lookup: makes the newly liked/disliked artist count in the very next scoring
                 with self._lock:
                     yield from expand_steps(kg, self.knowledge, [artist], 1)
@@ -512,19 +606,36 @@ class MusicFinder:
         return run(self.evaluate_steps(progress))
 
     def evaluate_steps(self, progress: Callable[[str, int, int], None] | None = None) -> Steps[dict]:
+        self._require_lookup()
+        reset = self._reset_generation
+        retry = getattr(self.knowledge, "retry_unavailable", None)
+        if retry:
+            retry()
+        signature = self.history_signature()
         report = yield from backtest_steps(self.plays(), self.knowledge, self.eval_cfg, self.crawl_cfg,
                                            progress or self._progress)
         report["generated"] = datetime.now(timezone.utc).isoformat()
+        report["history_signature"] = signature
         if self.demo:
             report["demo"] = True
-        self.store.set_setting("evaluation", report)
-        if report.get("ok") and report.get("enough_data"):
-            ch = report["chosen"]
-            self.store.set_setting("model", {
-                "half_life_days": ch["memory_half_life_days"], "seed_power": ch["seed_power"],
-                "alpha": ch["restart_probability"], "weights": ch["weights"],
-            })
-            self._invalidate(graph=True)
+        with self._lock:
+            if reset != self._reset_generation:
+                return report  # deleting history wins over every background result
+            self.store.set_setting("evaluation", report)
+        # Only validation chooses settings; held-out test outcomes never decide deployment.
+        # Imports made during the test must not install settings fitted to an obsolete history.
+        with self._lock:
+            install = (reset == self._reset_generation and report.get("ok")
+                       and report.get("selection", {}).get("validated") and signature == self.history_signature())
+            if install:
+                ch = report["chosen"]
+                self.store.set_setting("model", {
+                    "half_life_days": ch["memory_half_life_days"], "seed_power": ch["seed_power"],
+                    "alpha": ch["restart_probability"], "weights": ch["weights"],
+                    "history_signature": signature,
+                })
+                self._invalidate(graph=True)
+        if install:
             # Rebuilding is cheap now: every lookup is cached.
             yield from self.build_graph_steps(progress or self._progress)
         return report
@@ -577,6 +688,7 @@ class MusicFinder:
             "top_artists": artists, "top_tracks": tracks,
             "model": self.model().describe(),
             "personalised_model": bool(self.store.get_setting("model")),
+            "personalization": self.personalization_status(),
         }
         kg = self._current_kg()
         if kg is not None:
@@ -599,7 +711,9 @@ class MusicFinder:
             "graph_size": len(self._current_kg().names) if self._current_kg() is not None else 0,
             "job": self.job.to_dict(),
             "settings": self.settings(),
+            "lookup_available": self.lookup_available,
             "sources": self.knowledge.status(),
             "evaluation_available": bool(ev and ev.get("ok")),
             "personalised_model": bool(self.store.get_setting("model")),
+            "personalization": self.personalization_status(),
         }

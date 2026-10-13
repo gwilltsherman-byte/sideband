@@ -64,6 +64,19 @@ class LiveKnowledge:
     def status(self) -> dict[str, Any]:
         return {"sources": self.sources, "unavailable": dict(self._down), "http": dict(self.http.stats)}
 
+    def retry_unavailable(self) -> list[str]:
+        """Give an explicit new job a fresh attempt after a temporary outage.
+
+        The breaker still prevents a failing source from being tried for every artist within one
+        job. A user's later retry must be able to recover without restarting the app. Retain all
+        successful cached responses and identity lookups; only clear failure/breaker state.
+        """
+        with self._lock:
+            retrying = sorted(self._down)
+            self._down.clear()
+            self._failures.clear()
+        return retrying
+
     # ---- identity -------------------------------------------------------
     def mbid(self, name: str) -> str | None:
         """MusicBrainz id, from cached lookups only (never from other answers, which could name a

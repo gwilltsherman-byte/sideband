@@ -1,6 +1,8 @@
 # Sideband
 
-I want Sideband to help you find artists and songs from music you already enjoy. Pick a few artists or import your Spotify listening history. Sideband learns from plays and skips, explains each match, suggests unfamiliar genres, and checks its predictions against your history.
+Sideband helps you find artists and songs from music you already enjoy. Import your Spotify listening history, then choose **Improve my recommendations**. It updates your music map and tests personal settings in one job, keeping defaults when your history does not support a reliable change. You can also start with a few favourite artists while you wait for an export.
+
+Start with ten recommendations, listen, and mark **Like**, **Not for me** or **Already know**. Ratings immediately change the taste profile; **Apply ratings** updates the visible list without moving you elsewhere. You can undo a rating, and your adventurous setting and list length survive a reload.
 
 [Try the browser demo](https://gwilltsherman-byte.github.io/sideband/?demo=1) or follow the [Mac and iPhone guide](RUNNING.md) for live recommendations. You can start without an account or API key.
 
@@ -36,7 +38,7 @@ Hosting it there requires your own hosting account; free services can sleep
 between visits. Set `FRONTEND_ORIGIN` to your Pages origin and optionally
 `LASTFM_API_KEY` to add Last.fm data. The key stays on the server.
 
-The [published browser demo](https://gwilltsherman-byte.github.io/sideband/?demo=1) uses simulated data. For live recommendations, run Sideband on your computer or in Codespaces. If you host a copy on Pages, connect a lookup server before using live recommendations.
+The [published browser demo](https://gwilltsherman-byte.github.io/sideband/?demo=1) uses simulated data. For live recommendations, run Sideband on your computer or in Codespaces. If you host a copy on Pages, connect a lookup server before using live recommendations. If that server is unavailable, the app still opens: you can import history, view your taste and browse a saved recommendation map. New music lookups stay disabled with a link to the connected version.
 
 ### Open your computer's copy on your phone
 
@@ -58,15 +60,15 @@ It prints a private link such as `http://192.168.1.23:8765/?key=Ab3dE9fG`. Open 
 Predictions depend on the available listening and similarity data. Mood, context and artists outside that data can affect what you enjoy. sideband checks its predictions in several ways:
 
 1. It uses plays and skips to distinguish music you heard from music you enjoyed.
-2. It fits its settings to **your** history.
+2. It checks proposed personal settings against defaults on **your** history. A change needs enough observed outcomes and a positive paired bootstrap interval on validation; a sparse or inconclusive history retains defaults.
 3. It tests itself on data it has never seen: it hides your most recent months, predicts from everything before, and reports how many of the artists you actually went on to love it found. Results come with 95% confidence intervals and are compared against baselines.
 4. It tracks your *Like* / *Not for me* ratings as a live hit rate, with an error bar.
 
 ## Getting started
 
-**Right away:** name a few artists you love (Setup tab, or `sideband pick "Artist" "Another artist"`). sideband maps the music around them in a minute or two. Marking artists you can't stand helps too. On the simulated listener, eight picked artists already get within about 10% of what two years of listening history achieves (see [Validation](#validation-against-known-ground-truth)).
+**Right away:** name a few artists you love (Setup tab, or `sideband pick "Artist" "Another artist"`). Sideband maps the music around them. Marking artists you can't stand helps too. A favourite or a new Like overrides older skips of that artist; hiding a single song does not reject the whole artist.
 
-**Later, for sharper predictions:** add your Spotify history. You don't have to wait for it before using the app.
+**For recommendations based on how you actually listen:** add your Spotify history. You don't have to wait for it before using the app. Choose **Improve my recommendations** after importing: eligible new history is tested once, and importing the same files does not trigger another build. The recommendation page shows which history is in use and whether its settings have been tested.
 
 ### Getting your data
 
@@ -90,9 +92,9 @@ Spotify no longer gives new third-party apps its recommendation, related-artist 
 | **2. Satisfaction** | For each artist, the probability that a play is not an early skip. It is estimated with a Beta prior fitted to your whole history (empirical Bayes). | An artist you heard twice shouldn't be judged as confidently as one you heard 200 times. |
 | **3. Similarity graph** (`graph.py`) | Starting from your favourites (all-time, recent, and the artists you picked), sideband crawls similar-artist lists from ListenBrainz, Deezer and, if configured, Last.fm, and merges them into one weighted graph. Edges that several sources agree on count more. Genres come from MusicBrainz (looked up ten artists per request) or Last.fm. | Using several independent sources makes the similarity estimates more robust. |
 | **4. Scoring** (`recommender.py`) | Every unfamiliar artist gets 8 interpretable features: item-based CF, recent-taste CF, Personalized PageRank ([Haveliwala 2002](https://doi.org/10.1145/511446.511513)), how many of your artists point to it, TF-IDF genre-profile cosine, popularity, similarity to artists you skip, and source agreement. A linear model combines them. | Every prediction can be explained. That's the bar under each artist in the app. |
-| **5. Personal fit** (`evaluation.py`) | A time-based backtest picks the memory half-life, seed weighting and walk-restart probability on a *validation* window. It then re-fits the feature weights to you with logistic regression, using a prior centred on the defaults. | Different listeners behave differently. The prior keeps a small history from overfitting. |
+| **5. Personal fit** (`evaluation.py`) | A time-based backtest compares memory half-life, seed weighting and walk-restart probability on a *validation* window. Regularised logistic regression fits feature weights only to observed repeated/consistently-skipped artists; unheard artists are not invented dislikes. Changes need sufficient outcomes and a positive paired bootstrap improvement interval; weight fitting also uses withheld validation artists. | Different listeners behave differently. Defaults and stronger regularisation protect small histories from overfitting. |
 | **6. Re-ranking** | Maximal Marginal Relevance ([Carbonell & Goldstein 1998](https://doi.org/10.1145/290941.291025)), so a list isn't ten copies of one band. The **adventurous** dial trades predicted accuracy for novelty: less famous artists, further from your genres, a longer random walk. | The backtest reports how many hits you give up at each dial setting. |
-| **7. Exploration** (`explore.py`) | Each unfamiliar genre near your taste is a bandit arm with a Beta posterior over "will you like it?". Genres are ordered by Thompson sampling, and each one shows its *gateway artists*: the members closest to what you already love. Your ratings update the posteriors. | A principled explore/exploit trade-off ([Chapelle & Li 2011](https://papers.nips.cc/paper/4321-an-empirical-evaluation-of-thompson-sampling)). |
+| **7. Exploration** (`explore.py`) | Unfamiliar nearby genres are ordered by Thompson sampling, with a heuristic prior from artist affinity. Each shows *gateway artists* connected to what you already enjoy. Latest ratings update the genre votes once per artist; changing or clearing a rating removes its old vote. The heuristic is not a measured chance of liking a genre. | An explore/exploit approach ([Chapelle & Li 2011](https://papers.nips.cc/paper/4321-an-empirical-evaluation-of-thompson-sampling)), whose real-world results still need your ratings. |
 | **8. Songs** (`tracks.py`) | Three clearly separated lists: songs that go with your most-loved songs (Last.fm's track-to-track similarity, or Deezer's artist radio without it), the best-known song of each recommended artist, and popular songs by your favourite artists that you've never played. | |
 
 ### How accuracy is measured
@@ -102,28 +104,21 @@ Spotify no longer gives new third-party apps its recommendation, related-artist 
                                 t_val           t_test            now
 ```
 
-* **Ground truth:** an artist you'd never played counts as *adopted* if you streamed them at least 3 times on at least 2 different days in the window. It counts as *rejected* if every play was skipped within 30 s.
+* **Ground truth:** an artist you'd never played counts as *adopted* if you streamed them without skipping at least 3 times on at least 2 different days in the window. It counts as *rejected* if every qualifying play was skipped within 30 s. Neither label is a direct statement of love or dislike.
 * **Recall@K / Precision@K / NDCG@K:** of the artists you went on to adopt, how many were in the top K?
-* **Mean percentile rank** ([Hu et al. 2008](http://yifanhu.net/PUB/cf.pdf)): where those artists landed in the full ranking. 0% is the top; 50% is what random guessing would score.
-* **Preference AUC:** take one artist you heard and loved and one you heard and skipped. How often does sideband rank the loved one higher? Because you actually heard both, this is the cleanest test of "predicting what you'd like".
-* Every metric is compared with three baselines: *most popular first*, *similar-artists only* and *random*. It is reported with bootstrap 95% intervals. Settings are chosen on the validation window only, and the test window is never used to choose anything.
+* **Mean percentile rank** ([Hu et al. 2008](http://yifanhu.net/PUB/cf.pdf)): where those artists landed in the full ranking. Missing discoveries count as worst rank. The random baseline includes the same coverage penalty.
+* **Preference AUC:** among the observed adopted/rejected artists already available in the history-built pool, how often does Sideband rank the adopted one higher? Coverage and class counts appear beside the score. Held-out artists are never looked up to make this test easier.
+* Metrics grade the diversified list users actually receive and compare it with *most popular first*, *similar-artists only* and *random*. Recall and AUC have bootstrap 95% intervals. Settings are chosen on validation only; the final test never decides which settings are installed. The public similarity data is current rather than a historical snapshot, and listening logs contain exposure bias. This is a useful check, not an unbiased experiment about future enjoyment.
+
+The percentile shown on an artist card is its position among current candidates. It is **not** a like probability. A separate provisional likelihood estimate only appears after enough distinct, usable Like/Not for me ratings.
 
 ### Validation against known ground truth
 
-Real listening logs can't tell you what someone *would* have liked, so the test suite also includes a simulator (`synthetic.py`). It builds 8,000 artists in a latent style space, noisy and popularity-biased similarity lists like real collaborative-filtering data, and a listener whose taste drifts over time and who discovers music mainly through similarity-driven radio. That listener produces a realistic Extended Streaming History, skips included. On this simulated listener:
+Real listening logs cannot reveal what someone would have enjoyed but never heard, so the test suite includes a simulator (`synthetic.py`). It builds 8,000 artists in a latent style space, noisy and popularity-biased similarity lists, and a listener whose taste drifts over time. This tests correctness against planted preferences, not real-world accuracy.
 
-| | Recall@50 | Preference AUC |
-|---|---|---|
-| sideband | **77%** (95% CI 60-90%) | **0.94** (95% CI 0.87-1.00) |
-| similar-artists only | 70% | 0.95 |
-| most popular first | 0% | 0.28 |
-| random | 11% | 0.50 |
+On the default simulated listener, the current top 30 safe recommendations average 0.78 true like-probability, about 3.5 times a random unfamiliar artist. At the adventurous setting they average 0.75, with a smaller typical audience. The honest history-only backtest finds about 65% of later adopted artists in its top 50, versus about 13% for random and 0% for popularity on the same pool. Preference AUC is about 0.54 with only six covered rejected artists, so it is uncertain and this example does not justify personal settings.
 
-The top 10 recommendations have an average *true* like-probability of 0.90. The best possible from the same candidates is 0.95, and a random unfamiliar artist scores 0.23. Across three differently seeded worlds and listeners, the top 30 average 0.86, against 0.18 for random. Changing the default weights moves that by about ±0.01, so the result doesn't depend on hand-tuning.
-
-With no history at all, only the listener's eight favourite artists picked by name (mixing styles), the top 20 recommendations average 3.6× the like-probability of a random unfamiliar artist, against 3.9× from the full two-year history. The same holds without Last.fm (3.8× using only the free sources). The simulated similarity lists never cross genres, so these figures don't test how well picks alone suggest *new* genres; the history helps most there.
-
-These numbers describe the simulation, not you. Run the accuracy test on your own data to get your numbers.
+Older versions reported higher preference AUC after looking up future outcome artists. That procedure changed the graph using the answers being graded. Those figures are no longer used. The tests now verify candidate coverage, absence of future lookups, feedback reversals, and meaningful discovery lift. Run the accuracy test on your own history for results relevant to you.
 
 ## Command line
 

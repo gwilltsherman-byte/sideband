@@ -135,9 +135,18 @@ def test_backtest_beats_baselines(plays, knowledge):
     rep = backtest(plays, knowledge, cfg, CrawlConfig())
     assert rep["ok"] and rep["enough_data"]
     m, b = rep["model"], rep["baselines"]
-    assert m["auc"] > 0.8
+    # Preference grading uses only the original prediction pool. Expanding the graph from
+    # future adopted/rejected identities formerly inflated this number above 0.8; with few
+    # covered rejections we should report uncertainty, not require that optimistic threshold.
+    assert 0 <= m["auc"] <= 1
+    assert m["auc"] >= b["popularity"]["auc"]
+    assert min(m["auc_n"]) > 0
+    assert 0 < m["preference_coverage"] <= 1
+    assert m["preference_available"] == [sum(m["auc_n"]),
+                                         rep["ground_truth"]["test_adopted"] + rep["ground_truth"]["test_rejected"]]
+    assert m["auc_ci"] and 0 <= m["auc_ci"][0] <= m["auc_ci"][1] <= 1
     assert m["recall@50"] > b["popularity"]["recall@50"]
-    assert m["recall@50"] > b["random"]["recall@50"]
+    assert m["recall@50"] > 2 * b["random"]["recall@50"]
     assert m["mean_percentile_rank"] < 30  # 50 would be random
     assert rep["summary"] and rep["windows"]["test"][0] > rep["windows"]["validation"][0]
     curve = b["exploration_tradeoff"]

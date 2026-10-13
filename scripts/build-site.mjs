@@ -17,7 +17,7 @@ const web = path.join(root, "musicfinder", "web");
 
 // Python modules the browser never needs (local web server and command line).
 const SKIP_PY = new Set(["musicfinder/server.py", "musicfinder/cli.py", "musicfinder/__main__.py"]);
-const WEB_FILES = ["app.js", "browser-api.js", "worker.js", "style.css", "manifest.webmanifest",
+const WEB_FILES = ["app.js", "ui-state.js", "browser-api.js", "worker.js", "style.css", "manifest.webmanifest",
   "icon-180.png", "icon-192.png", "icon-512.png"];
 const PYODIDE_FILES = ["pyodide.mjs", "pyodide.asm.mjs", "pyodide.asm.wasm", "python_stdlib.zip", "pyodide-lock.json"];
 
@@ -59,6 +59,7 @@ async function main() {
     await writeFile(path.join(out, "py", rel), text);
   }
   for (const f of WEB_FILES) hash.update(await readFile(path.join(web, f)));
+  hash.update(await readFile(path.join(web, "index.html")));
   const version = hash.digest("hex").slice(0, 12);
   await writeFile(path.join(out, "py", "manifest.json"), JSON.stringify({ version, files }, null, 1));
 
@@ -68,7 +69,14 @@ async function main() {
   for (const f of PYODIDE_FILES) await cp(path.join(pyodideDir, f), path.join(pyodideOut, f));
 
   // 3. the page
-  for (const f of WEB_FILES) await cp(path.join(web, f), path.join(out, "static", f));
+  for (const f of WEB_FILES) {
+    if (f === "app.js") {
+      const source = (await readFile(path.join(web, f), "utf8"))
+        .replace('from "./ui-state.js"', `from "./ui-state.js?v=${version}"`)
+        .replace('import("./browser-api.js")', `import("./browser-api.js?v=${version}")`);
+      await writeFile(path.join(out, "static", f), source);
+    } else await cp(path.join(web, f), path.join(out, "static", f));
+  }
   let html = await readFile(path.join(web, "index.html"), "utf8");
   const head = [
     `<script>window.MUSICFINDER_MODE = "browser"; window.MUSICFINDER_VERSION = "${version}";`
@@ -81,6 +89,7 @@ async function main() {
   ].join("\n  ");
   if (!html.includes("</head>")) throw new Error("index.html has no </head>");
   html = html.replaceAll('="/static/', '="./static/');
+  for (const f of ["app.js", "style.css"]) html = html.replaceAll(`="./static/${f}"`, `="./static/${f}?v=${version}"`);
   html = html.replace("</head>", `  ${head}\n</head>`);
   await writeFile(path.join(out, "index.html"), html);
   await writeFile(path.join(out, ".nojekyll"), "");

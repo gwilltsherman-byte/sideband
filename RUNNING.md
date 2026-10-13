@@ -25,8 +25,18 @@ Open `http://127.0.0.1:8765` if the browser does not open automatically.
 Keep Terminal open. Control-C stops the server. Next time, return to the
 repository folder and run `.venv/bin/sideband serve`.
 
-In Setup, pick artists you like and choose Find my music. A Spotify export is
-optional. To try a simulated listener without network lookups:
+In Setup, import your Spotify ZIP or select all its JSON files together, then
+choose **Improve my recommendations**. Sideband updates your map and tests new
+eligible history in one job. It fits personal settings only when validation
+supports a change. Your plays and skips shape the recommendations even when
+there is not enough evidence to fit settings.
+
+You can also pick artists you like and choose **Find my music** before an export
+arrives. On For You, start with ten artists, listen, rate them, then choose
+**Apply ratings to my list**. You can undo a rating and choose 20 or 30 artists
+at a time; Sideband remembers your list size and adventurous setting.
+
+To try a simulated listener without network lookups:
 
 ```sh
 .venv/bin/sideband serve --demo
@@ -66,4 +76,9 @@ Variables to the server's `/api/proxy` URL, then rerun the Pages workflow.
 The optional Render blueprint serves only public music lookups. It does not
 store your listening history. A hosting account is required to deploy it.
 Use `?demo=1` for the Pages demo until that service is connected.
+
+If the lookup service is absent or temporarily unavailable, Sideband still
+opens for local imports, your taste profile and a previously saved music map.
+It shows a connection notice and disables new lookups. Reload after the service
+returns; your history is preserved.
 
