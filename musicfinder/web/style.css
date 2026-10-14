@@ -222,6 +222,10 @@ label { font-weight: 500; }
 .rec-why { margin: 0 0 var(--s2); color: var(--ink-2); }
 .rec-why b { color: var(--ink); font-weight: 500; }
 .rec-actions { display: flex; flex-wrap: wrap; gap: var(--s2); margin-top: var(--s3); }
+.preview-control { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--s2); max-width: 100%; }
+.preview-note { color: var(--ink-2); font-size: var(--step--1); }
+.preview-control button { max-width: 100%; overflow-wrap: anywhere; }
+.rec-actions .preview-control { align-self: center; }
 .rec-side { display: flex; flex-direction: column; align-items: center; gap: var(--s2); min-width: 92px; }
 .rec-state { font-size: var(--step--1); color: var(--ink-2); margin-top: var(--s2); }
 .rec-state:has(button[hidden]) { margin-top: 0; }
@@ -364,6 +368,7 @@ details > summary { cursor: pointer; min-height: 44px; padding: var(--s2) 0; }
 .song-rec { grid-template-columns: minmax(0, 1fr) minmax(0, 22rem); padding: var(--s4) 0; align-items: start; }
 .song-actions { display: flex; flex-direction: column; align-items: flex-end; gap: var(--s2); }
 .song-actions .row { justify-content: flex-end; }
+.song-playback { align-items: center; }
 .song-details { min-width: 0; }
 .song-rec .rec-state { max-width: 68ch; }
 .song-ratings { flex-wrap: wrap; }

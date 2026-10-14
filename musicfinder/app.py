@@ -8,9 +8,10 @@ import random
 import threading
 import time
 import traceback
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Callable
+from urllib.parse import urlsplit
 
 from musicfinder.evaluation import EvalConfig, ModelConfig, backtest_steps
 from musicfinder.explore import genre_shares, territories
@@ -22,6 +23,7 @@ from musicfinder.normalize import artist_key, track_key
 from musicfinder.recommender import FEATURES, Candidate, ScoredPool, diversify, score_pool
 from musicfinder.sources import LiveKnowledge
 from musicfinder.sources.base import Knowledge
+from musicfinder.sources.deezer import PREVIEW_TTL
 from musicfinder.sources.http import HttpClient, SourceError, Transport
 from musicfinder.steps import Need, Steps, run
 from musicfinder.store import Store
@@ -607,13 +609,107 @@ class MusicFinder:
         tops = self.knowledge.top_tracks(name, limit)
         return [{"title": t.title, "artist": t.artist or name, "link": t.link} for t in tops]
 
-    def preview(self, artist: str, track: str) -> dict | None:
+    def preview(self, artist: str, track: str = "", fresh: bool = False) -> dict | None:
+        return run(self.preview_steps(artist, track, fresh))
+
+    def preview_steps(self, artist: str, track: str = "", fresh: bool = False) -> Steps[dict | None]:
+        """Find this song's audio, never a different song by the same artist.
+
+        Deezer's track search can return no results for its advanced artist/track query even when
+        its plain search finds playable audio. Search the artist and title, then validate
+        both identities locally. With no title, return a playable song by that exact artist.
+        Each lookup yields before fetching so browser playback checks
+        use the asynchronous relay and report outages instead of blocking in worker XHR retries.
+        """
         self._require_lookup()
-        info = self.knowledge.preview(artist, track)
+        artist, track = artist.strip(), track.strip()
+        if not artist or len(artist) > 200 or len(track) > 200:
+            raise ValueError("Choose an artist to check for a preview")
+        if any(ord(ch) < 32 or ord(ch) == 127 for ch in artist + track):
+            raise ValueError("Song and artist names must not contain control characters")
+        knowledge = self.knowledge
+        want_artist, want_track = artist_key(artist), track_key(track)
+        info = None
+        try:
+            if isinstance(knowledge, LiveKnowledge):
+                if knowledge.deezer is None:
+                    return None
+                # Keep signed media URLs under the source's existing three-hour cache lifetime.
+                # A later user retry bypasses the graph crawler's circuit breaker.
+                queries = [f"{artist} {track}".strip()]
+                if want_track != track.casefold():
+                    queries.append(f"{artist} {want_track}")
+                requests = [replace(knowledge.deezer.req("/search/track", PREVIEW_TTL, q=query, limit=20),
+                                    classify=self._preview_response) for query in queries]
+                if fresh and knowledge.http.store is not None:
+                    for req in requests:
+                        knowledge.http.store.cache_forget(req.cache_key)
+                for req in requests:
+                    need = Need("preview", [(artist, track)], "Checking song preview", requests=[req])
+                    yield need
+                    if need.error:
+                        raise Unavailable("Song previews could not be checked. Please try again.")
+                    response = knowledge.http.fetch(req)
+                    if response is None:  # a genuine upstream 'not found' response
+                        data = []
+                    elif isinstance(response, dict) and isinstance(response.get("data"), list):
+                        data = response["data"]
+                    else:
+                        raise Unavailable("Song previews could not be checked. Please try again.")
+                    matches = [t for t in data if isinstance(t, dict)
+                               and isinstance(t.get("artist"), dict)
+                               and artist_key(str(t["artist"].get("name", ""))) == want_artist
+                               and str(t.get("title", "")).strip()
+                               and (not want_track or track_key(str(t.get("title", ""))) == want_track)]
+                    # Prefer the requested recording when both live/remaster versions appear.
+                    matches.sort(key=lambda t: str(t.get("title", "")).strip().casefold() != track.casefold())
+                    for candidate in matches:
+                        if not isinstance(candidate.get("album", {}), dict):
+                            candidate = {**candidate, "album": {}}
+                        found = knowledge.deezer._track(candidate)
+                        found.preview_url = self._preview_url(found.preview_url)
+                        if found.preview_url:
+                            info = found
+                            break
+                        info = info or found
+                    if info and info.preview_url:
+                        break
+            else:
+                info = knowledge.preview(artist, track)
+        except SourceError as e:
+            raise Unavailable("Song previews could not be checked. Please try again.") from e
         if not info:
             return None
-        return {"title": info.title, "artist": info.artist, "preview_url": info.preview_url, "link": info.link,
+        if artist_key(info.artist) != want_artist or not info.title or (want_track and track_key(info.title) != want_track):
+            return None
+        preview_url = self._preview_url(info.preview_url)
+        return {"title": info.title, "artist": info.artist, "preview_url": preview_url, "link": info.link,
                 "image": info.image, "album": info.album}
+
+    @staticmethod
+    def _preview_url(url: str | None) -> str | None:
+        if not isinstance(url, str):
+            return None
+        try:
+            parsed = urlsplit(url)
+            return url if parsed.scheme == "https" and parsed.hostname else None
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _preview_response(status: int, body: object) -> str:
+        """A denied or malformed lookup is not proof that this song lacks a clip."""
+        if status == 429 or status >= 500:
+            return "retry"
+        if status != 200 or not isinstance(body, dict):
+            return "fatal"
+        error = body.get("error")
+        if error is not None:
+            code = str(error.get("code", "")) if isinstance(error, dict) else ""
+            if code in ("4", "700"):
+                return "retry"
+            return "missing" if code == "800" else "fatal"
+        return "ok" if isinstance(body.get("data"), list) else "fatal"
 
     # ---- feedback -------------------------------------------------------------------------------
     def add_feedback(self, artist: str, verdict: str, track: str = "", context: dict | None = None) -> dict:

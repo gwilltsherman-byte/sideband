@@ -10,13 +10,16 @@ test("published HTML and module dependencies request the same content version", 
   const html = await readFile(new URL("index.html", root), "utf8");
   const app = await readFile(new URL("static/app.js", root), "utf8");
   for (const asset of ["app.js", "style.css"]) assert.ok(html.includes(`./static/${asset}?v=${version}`));
-  for (const dependency of ["ui-state.js", "artist-picker.js", "listening-signals.js", "browser-api.js"]) assert.ok(app.includes(`./${dependency}?v=${version}`));
+  for (const dependency of ["ui-state.js", "artist-picker.js", "listening-signals.js", "preview-state.js", "browser-api.js"]) assert.ok(app.includes(`./${dependency}?v=${version}`));
   const picker = await readFile(new URL("static/artist-picker.js", root), "utf8");
   assert.ok(picker.includes("artistChoices"));
   const signals = await readFile(new URL("static/listening-signals.js", root), "utf8");
   assert.ok(signals.includes(`./artist-picker.js?v=${version}`));
+  const previews = await readFile(new URL("static/preview-state.js", root), "utf8");
+  assert.ok(previews.includes(`./listening-signals.js?v=${version}`));
   const sw = await readFile(new URL("sw.js", root), "utf8");
   assert.ok(sw.includes("static/artist-picker.js"));
   assert.ok(sw.includes("static/listening-signals.js"));
+  assert.ok(sw.includes("static/preview-state.js"));
   assert.ok(html.includes(`MUSICFINDER_VERSION = "${version}"`));
 });

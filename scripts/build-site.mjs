@@ -17,7 +17,7 @@ const web = path.join(root, "musicfinder", "web");
 
 // Python modules the browser never needs (local web server and command line).
 const SKIP_PY = new Set(["musicfinder/server.py", "musicfinder/cli.py", "musicfinder/__main__.py"]);
-const WEB_FILES = ["app.js", "ui-state.js", "artist-picker.js", "listening-signals.js", "browser-api.js", "worker.js", "style.css", "manifest.webmanifest",
+const WEB_FILES = ["app.js", "ui-state.js", "artist-picker.js", "listening-signals.js", "preview-state.js", "browser-api.js", "worker.js", "style.css", "manifest.webmanifest",
   "icon-180.png", "icon-192.png", "icon-512.png"];
 const PYODIDE_FILES = ["pyodide.mjs", "pyodide.asm.mjs", "pyodide.asm.wasm", "python_stdlib.zip", "pyodide-lock.json"];
 
@@ -70,11 +70,12 @@ async function main() {
 
   // 3. the page
   for (const f of WEB_FILES) {
-    if (["app.js", "listening-signals.js"].includes(f)) {
+    if (["app.js", "listening-signals.js", "preview-state.js"].includes(f)) {
       const source = (await readFile(path.join(web, f), "utf8"))
         .replace('from "./ui-state.js"', `from "./ui-state.js?v=${version}"`)
         .replace('from "./artist-picker.js"', `from "./artist-picker.js?v=${version}"`)
         .replace('from "./listening-signals.js"', `from "./listening-signals.js?v=${version}"`)
+        .replace('from "./preview-state.js"', `from "./preview-state.js?v=${version}"`)
         .replace('import("./browser-api.js")', `import("./browser-api.js?v=${version}")`);
       await writeFile(path.join(out, "static", f), source);
     } else await cp(path.join(web, f), path.join(out, "static", f));

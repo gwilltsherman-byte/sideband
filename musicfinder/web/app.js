@@ -2,6 +2,7 @@
 import { explorationChoice, batchChoice, nextRecommendationAction, latestRequest, quickReviewCurrent, quickInputKind } from "./ui-state.js";
 import { ARTIST_STYLES, artistChoices, artistIdentity } from "./artist-picker.js";
 import { previewObservation, feedbackIdentity, feedbackIO } from "./listening-signals.js";
+import { previewAvailability, previewInViewport } from "./preview-state.js";
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const main = $("#main");
@@ -244,6 +245,9 @@ let setupPickListener = null;
 
 async function route() {
   const mine = ++routeSeq;
+  stopPreview();
+  previewObserver?.disconnect();
+  previewChecks.cancelPending();
   if (setupPickListener) {
     document.removeEventListener("sideband-picks", setupPickListener);
     setupPickListener = null;
@@ -410,7 +414,7 @@ function recRow(r, i, scale, extraCtx = {}) {
       ${meter(r, scale)}
       ${truth}
       <div class="rec-actions">
-        <button data-act="play" data-label="Play a preview" aria-label="Play a preview of ${esc(r.name)}">Play a preview</button>
+        ${previewControl()}
         ${spotifyLink(r.name, "", "Open in Spotify ↗")}
         ${ratingButtons(r.name, "", verdict)}
       </div>
@@ -435,7 +439,8 @@ main.addEventListener("click", async (e) => {
   if (!btn) return;
   const row = btn.closest("[data-artist]");
   const act = btn.dataset.act;
-  if (act === "play" && row) return playPreview(btn, row.dataset.artist, row.dataset.track);
+  if (act === "play" && row) return playPreview(btn, row);
+  if (act === "preview-retry" && row) return checkPreview(btn.closest("[data-preview-control]"), true);
   if (act === "tag") return exploreTag(btn.dataset.tag);
   if (!["like", "dislike", "known", "undo"].includes(act) || !row || row.dataset.saving) return;
   const ctx = JSON.parse(row.dataset.ctx || "{}");
@@ -499,6 +504,75 @@ function recordInteraction(body) {
   api("/api/interactions", { method: "POST", body }).catch(() => {});
 }
 
+// Only rows on screen are checked. A lookup is not playback or a taste signal.
+const previewInfo = new WeakMap();
+let previewObserver = null;
+const previewChecks = previewAvailability({ lookup: async (artist, track, { retry }) => {
+  return api(`/api/preview?artist=${enc(artist)}&track=${enc(track || "")}${retry ? "&fresh=1" : ""}`);
+} });
+function previewControl() {
+  return `<span class="preview-control" data-preview-control data-preview-state="unchecked"><span class="preview-note">Checking preview…</span></span>`;
+}
+function renderPreviewControl(control, result) {
+  control.dataset.previewState = result.status;
+  const row = control.closest("[data-artist]");
+  const subject = row.dataset.track ? `${row.dataset.track} by ${row.dataset.artist}` : row.dataset.artist;
+  if (result.status === "ready") {
+    previewInfo.set(control, result.info);
+    const label = row.dataset.track ? "Play preview" : "Play a preview";
+    control.innerHTML = `<button data-act="play" data-label="${label}" aria-label="Play a preview of ${esc(subject)}" aria-pressed="false">${label}</button>`;
+  } else if (result.status === "unavailable") {
+    previewInfo.delete(control);
+    control.innerHTML = `<span class="preview-note">No preview available</span>`;
+  } else if (result.status === "error") {
+    previewInfo.delete(control);
+    control.innerHTML = `<span class="preview-note">${result.media ? "Preview couldn’t play." : "Couldn’t check preview."}</span><button data-act="preview-retry" aria-label="${result.media ? "Reload" : "Retry checking"} the preview of ${esc(subject)}">${result.media ? "Reload preview" : "Retry check"}</button>`;
+  } else {
+    control.innerHTML = `<span class="preview-note">Checking preview…</span>`;
+  }
+}
+async function checkPreview(control, retry = false) {
+  if (!control?.isConnected) return;
+  const row = control.closest("[data-artist]");
+  if (!row || (playingBtn && control.contains(playingBtn))) return;
+  const hadFocus = retry && control.contains(document.activeElement);
+  renderPreviewControl(control, { status: "checking" });
+  const result = await previewChecks.request(row.dataset.artist, row.dataset.track || "", { retry });
+  if (!control.isConnected || result.status === "cancelled" || (playingBtn && control.contains(playingBtn))) return;
+  renderPreviewControl(control, result);
+  if (hadFocus && document.activeElement === document.body) control.querySelector("button")?.focus({ preventScroll: true });
+}
+function checkVisiblePreviews() {
+  for (const control of main.querySelectorAll('[data-preview-control][data-preview-state="unchecked"]')) {
+    if (previewInViewport(control.closest("li").getBoundingClientRect(), innerHeight, innerWidth)) checkPreview(control);
+  }
+}
+function observePreviews() {
+  previewObserver?.disconnect();
+  previewChecks.cancelPending();
+  const controls = main.querySelectorAll('[data-preview-control][data-preview-state="unchecked"], [data-preview-control][data-preview-state="checking"]');
+  if (typeof IntersectionObserver === "function") {
+    previewObserver = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        previewObserver.unobserve(entry.target);
+        checkPreview(entry.target);
+      }
+    }, { rootMargin: "0px", threshold: 0 });
+    controls.forEach((control) => previewObserver.observe(control));
+  } else {
+    controls.forEach((control) => { control.dataset.previewState = "unchecked"; });
+    checkVisiblePreviews();
+  }
+}
+let previewScrollFrame = null;
+const checkPreviewsAfterScroll = () => {
+  if (typeof IntersectionObserver === "function" || previewScrollFrame != null) return;
+  previewScrollFrame = requestAnimationFrame(() => { previewScrollFrame = null; checkVisiblePreviews(); });
+};
+window.addEventListener("scroll", checkPreviewsAfterScroll, { passive: true });
+window.addEventListener("resize", checkPreviewsAfterScroll, { passive: true });
+
 let playingBtn = null;
 let previewSession = null;
 let playbackSeq = 0;
@@ -517,9 +591,34 @@ function finishPreview() {
 }
 function resetPlayButton() {
   if (!playingBtn) return;
-  playingBtn.textContent = playingBtn.dataset.label || "Play";
-  playingBtn.removeAttribute("aria-pressed");
+  playingBtn.textContent = playingBtn.dataset.label || "Play preview";
+  playingBtn.setAttribute("aria-pressed", "false");
+  playingBtn.removeAttribute("aria-busy");
   playingBtn = null;
+}
+function stopPreview() {
+  playbackSeq += 1;
+  player.pause();
+  finishPreview();
+  previewSession = null;
+  resetPlayButton();
+  player.removeAttribute("src");
+  player.load();
+}
+function previewPlaybackFailed(btn, error) {
+  const control = btn?.closest("[data-preview-control]");
+  const row = control?.closest("[data-artist]");
+  finishPreview();
+  previewSession = null;
+  resetPlayButton();
+  // A browser gesture restriction is recoverable by another explicit tap and
+  // does not make a matching preview disappear from the catalogue.
+  if (error?.name === "NotAllowedError") {
+    toast("Your browser blocked playback. Tap Play preview to try again.", 6000);
+    return;
+  }
+  if (row) previewChecks.forget(row.dataset.artist, row.dataset.track || "");
+  if (control?.isConnected) renderPreviewControl(control, { status: "error", media: true });
 }
 player.addEventListener("playing", () => {
   if (!previewSession) return;
@@ -531,42 +630,37 @@ player.addEventListener("waiting", () => { samplePreview(); previewSession?.obse
 player.addEventListener("seeking", () => previewSession?.observation.suspend());
 player.addEventListener("seeked", () => { if (!player.paused) previewSession?.observation.start(player.currentTime, performance.now()); });
 player.addEventListener("volumechange", () => { samplePreview(); });
-player.addEventListener("ended", () => { finishPreview(); resetPlayButton(); });
-player.addEventListener("pause", () => { finishPreview(); resetPlayButton(); });
+player.addEventListener("ended", () => { if (player.ended) { finishPreview(); resetPlayButton(); } });
+player.addEventListener("pause", () => { if (player.paused) { finishPreview(); resetPlayButton(); } });
+player.addEventListener("error", () => {
+  const btn = playingBtn;
+  if (!btn || !player.error) return;
+  playbackSeq += 1;
+  previewPlaybackFailed(btn);
+});
 window.addEventListener("pagehide", finishPreview);
 
-async function playPreview(btn, artist, track) {
-  if (playingBtn === btn && !player.paused) { player.pause(); return; }
-  player.pause();
-  finishPreview();
-  previewSession = null;
+async function playPreview(btn, row) {
+  if (playingBtn === btn) { stopPreview(); return; }
+  const info = previewInfo.get(btn.closest("[data-preview-control]"));
+  if (!info?.preview_url) return;
+  stopPreview();
   const mine = ++playbackSeq;
-  btn.disabled = true;
-  btn.textContent = "Finding a preview…";
+  playingBtn = btn;
+  btn.textContent = "Cancel preview";
+  btn.setAttribute("aria-busy", "true");
+  previewSession = { artist: info.artist || row.dataset.artist, track: info.title || row.dataset.track || "", id: interactionId(), audible: !player.muted && player.volume > 0, observation: previewObservation() };
+  player.src = info.preview_url;
   try {
-    let info = null;
-    const titles = track ? [track] : (await api(`/api/artist/tracks?name=${enc(artist)}&n=4`)).items.map((t) => t.title);
-    for (const t of titles) {
-      info = await api(`/api/preview?artist=${enc(artist)}&track=${enc(t)}`);
-      if (info && info.preview_url) break;
-    }
-    if (mine !== playbackSeq) { btn.textContent = btn.dataset.label || "Play"; return; }
-    if (!info || !info.preview_url) {
-      btn.textContent = "No preview — try Spotify";
-      return;
-    }
-    previewSession = { artist: info.artist || artist, track: info.title || track, id: interactionId(), audible: !player.muted && player.volume > 0, observation: previewObservation() };
-    player.src = info.preview_url;
+    // The matching URL was checked beforehand, so play() stays inside the
+    // user's click gesture, including on browsers with strict audio policies.
     await player.play();
-    if (mine !== playbackSeq) { btn.textContent = btn.dataset.label || "Play"; return; }
-    playingBtn = btn;
-    btn.textContent = `Pause · “${info.title}”`;
+    if (mine !== playbackSeq) return;
+    btn.textContent = row.dataset.track ? "Pause preview" : `Pause · “${info.title}”`;
     btn.setAttribute("aria-pressed", "true");
+    btn.removeAttribute("aria-busy");
   } catch (err) {
-    if (mine === playbackSeq) previewSession = null;
-    btn.textContent = "Preview unavailable";
-  } finally {
-    btn.disabled = false;
+    if (mine === playbackSeq) previewPlaybackFailed(btn, err);
   }
 }
 
@@ -652,11 +746,13 @@ async function viewForYou() {
       if (mine !== routeSeq || !requests.current(token) || !box.isConnected || revision !== feedbackRevision) return;
       const items = data.items;
       const scale = meterScale(items);
+      stopPreview();
       box.innerHTML = items.length
         ? items.map((r, i) => recRow(r, i, scale)).join("")
         : `<li class="empty">No unfamiliar artists found near your taste yet. Pick a few more artists you love in <a href="#setup">Setup</a>, or add more Spotify history.</li>`;
       status.textContent = `${items.length} artists ready. The percentile compares candidates; it is not the chance you’ll like them.`;
       refresh.textContent = "Refresh my list";
+      observePreviews();
     } finally {
       if (requests.current(token) && box.isConnected) {
         refresh.disabled = false;
@@ -691,8 +787,8 @@ function songRow(s) {
     <div class="song-details"><div class="song-title">${esc(s.title)} <span class="muted">— ${esc(s.artist)}</span></div>
     <div class="song-why">${esc(s.because)}</div>
     ${ratingStatus(s.artist, s.title, verdict)}</div>
-    <div class="song-actions"><div class="row"><button data-act="play" data-label="Play a preview" aria-label="Play a preview of ${esc(s.title)} by ${esc(s.artist)}">Play a preview</button>
-    ${spotifyLink(s.artist, s.title)}</div>
+    <div class="song-actions"><div class="row song-playback">${previewControl()}
+    ${spotifyLink(s.artist, s.title, "Open in Spotify ↗")}</div>
     <div class="row song-ratings" role="group" aria-label="Your opinion of ${esc(s.title)}">${ratingButtons(s.artist, s.title, verdict)}</div></div>
   </li>`;
 }
@@ -722,12 +818,14 @@ async function viewSongs() {
       if (mine !== routeSeq || !requests.current(token) || !box.isConnected || revision !== feedbackRevision) return;
       const block = (title, lede, items) => `<section class="section"><h2>${title}</h2><p class="lede">${lede}</p>
         ${items.length ? `<ol class="songs">${items.map(songRow).join("")}</ol>` : `<p class="muted">Nothing new found for this list yet.</p>`}</section>`;
+      stopPreview();
       box.innerHTML =
         block("Songs like your favourites", "Songs connected to your favourites, ordered using your choices and music similarity.", data.similar_song)
         + block("From new artists", "Songs from new artists matched to your current taste.", data.new_artist)
         + block("Unheard songs by artists you love", "Songs from your favourite artists that aren’t in your saved listening history or choices.", data.deep_cut);
       status.textContent = "Your song choices are saved across visits. Rate what you try, then refresh for new picks.";
       refresh.textContent = "Refresh my list";
+      observePreviews();
     } finally {
       if (requests.current(token) && box.isConnected) {
         refresh.disabled = false;
@@ -754,6 +852,7 @@ async function exploreTag(tag) {
   const mine = routeSeq;
   const token = tagRequests.start();
   $("#tag-input").value = tag;
+  stopPreview();
   box.innerHTML = `<p class="loading">Finding your best way into “${esc(tag)}”…</p>`;
   box.scrollIntoView({ behavior: "smooth", block: "start" });
   try {
@@ -765,6 +864,7 @@ async function exploreTag(tag) {
       ${res.you_already_know.length ? `<p class="meta">You already know ${esc(res.you_already_know.join(", "))}.</p>` : ""}
       ${res.gateways.length ? `<ol class="recs">${res.gateways.map((r, i) => recRow(r, i, scale, { territory: res.tag })).join("")}</ol>`
         : `<p class="muted">No artists found for that genre. Try a broader word, like jazz, metal or folk.</p>`}</section>`;
+    observePreviews();
   } catch (err) {
     if (mine !== routeSeq || !tagRequests.current(token) || !box.isConnected) return;
     box.innerHTML = `<p class="error">${esc(err.message)}</p>`;
@@ -786,6 +886,7 @@ async function viewExplore() {
     const token = requests.start();
     const data = await api(`/api/explore${seed != null ? `?seed=${seed}` : ""}`);
     if (mine !== routeSeq || !requests.current(token)) return;
+    stopPreview();
     $("#terrs").innerHTML = data.territories.length ? data.territories.map((t) => {
       const scale = meterScale(t.gateways);
       const next = t.related_genres_you_know.length ? `Next door to ${esc(listJoin(t.related_genres_you_know))}` : "Reached through your taste network";
@@ -806,6 +907,7 @@ async function viewExplore() {
         <div class="chips">${data.far_genres.map((g) => `<button data-act="tag" data-tag="${esc(g)}">${esc(g)}</button>`).join("")}</div>
       </section>`;
     $("#tag-form").addEventListener("submit", (e) => { e.preventDefault(); exploreTag($("#tag-input").value.trim()); });
+    observePreviews();
   };
   $("#shuffle").addEventListener("click", () => load(Math.floor(Math.random() * 1e6)).catch((err) => toast(err.message)));
   await load();
@@ -1560,7 +1662,7 @@ async function viewSetup() {
   $("#clear-data").addEventListener("click", async () => {
     if (!confirm("Delete your picked artists, imported listening data and learned interest from previews and music links? (Your Spotify account is not affected.)")) return;
     previewSession = null;
-    playbackSeq += 1;
+    stopPreview();
     await api("/api/clear", { method: "POST", body: { what: "data" } });
     store("mf.quickDraft", "");
     toast("Picks, listening data and learned interest deleted.");
@@ -1569,7 +1671,7 @@ async function viewSetup() {
   $("#clear-fb").addEventListener("click", async () => {
     if (!confirm("Delete all your song and artist ratings, plus learned interest from previews and music links?")) return;
     previewSession = null;
-    playbackSeq += 1;
+    stopPreview();
     await api("/api/clear", { method: "POST", body: { what: "feedback" } });
     feedbackChoices.clear();
     toast("Ratings and learned interest deleted.");
