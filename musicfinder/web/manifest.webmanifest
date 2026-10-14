@@ -4,8 +4,8 @@
   "description": "Artist and song recommendations from your music preferences.",
   "start_url": "../",
   "display": "standalone",
-  "background_color": "#f4f1ea",
-  "theme_color": "#f4f1ea",
+  "background_color": "#faf7f0",
+  "theme_color": "#331c2a",
   "icons": [
     {
       "src": "icon-192.png",

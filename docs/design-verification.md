@@ -1,3 +1,15 @@
+# Color identity refinement — 2026-10-14
+
+The user asked for Sideband and Milo to have distinct, purpose-grounded colors. Sideband now uses record-sleeve ivory, aubergine structure, wine actions, and amber labels. Green is restricted to positive evidence and liked feedback. Selection, navigation, and music data each have their own roles. Light and dark themes, browser theme colors, manifest, and favicon follow the revised system.
+
+Current checks: desktop 1440×960 and phone 390×844, both themes, all six route surfaces, selection and feedback/evidence states. Rating and Undo were exercised in the labeled demo. Key text, control-edge, navigation, and selection contrast pairs were checked. 43 JavaScript tests pass; production build `233bf4b6e1c2` succeeds. The detector was run on the actual stylesheet this time; its remaining findings are the retained Fraunces choice and existing type/radius documentation advisories, not new color defects. Existing typography is deliberately retained for the music editorial identity.
+
+Independent finish review: ship. All 16 requested captures across both apps were inspected; all 38 representative text/control contrast pairs pass. Two malformed resize-transition captures were replaced and validated. No material color or theme finding remains.
+
+No API or recommendation changes. The prior backend validation below remains the baseline; it was not unnecessarily repeated for this palette-only change. Screenshots linked below now show the current design. Actual audio playback, physical devices, full screen-reader behavior, and hosted startup remain outside this pass. No production deployment was performed.
+
+---
+
 # Interface redesign verification
 
 Verified on 2026-10-13 against the redesign branch. Local preview data is isolated from personal listening data. The recommendation screenshots use the explicitly labeled simulated listener.
