@@ -1,5 +1,6 @@
 // Sideband single-page UI. Plain ES module, no build step.
 import { explorationChoice, batchChoice, nextRecommendationAction, latestRequest, quickReviewCurrent, quickInputKind } from "./ui-state.js";
+import { ARTIST_STYLES, artistChoices, artistIdentity } from "./artist-picker.js";
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const main = $("#main");
@@ -15,6 +16,12 @@ const player = $("#player");
 let state = null;
 let importing = false;
 let quickSaving = false;
+// Serialize explicit picks so fast taps cannot overwrite a later choice.
+let pickQueue = Promise.resolve();
+let pickSaving = 0;
+let savedPicks = null;
+let pickIntents = [];
+let pickIntentSeq = 0;
 
 const FEATURE_NAMES = {
   cf: "Similar to artists you play a lot",
@@ -185,9 +192,14 @@ const canBuild = () => Boolean(state.has_data || state.plays || (state.picks && 
 const views = { "for-you": viewForYou, songs: viewSongs, explore: viewExplore, taste: viewTaste, accuracy: viewAccuracy, setup: viewSetup };
 
 let routeSeq = 0; // each navigation's number: a slower, older one never overwrites a newer one
+let setupPickListener = null;
 
 async function route() {
   const mine = ++routeSeq;
+  if (setupPickListener) {
+    document.removeEventListener("sideband-picks", setupPickListener);
+    setupPickListener = null;
+  }
   let name = location.hash.slice(1) || "for-you";
   if (!views[name]) name = "for-you";
   try {
@@ -844,31 +856,83 @@ function pickChips(picks) {
     ${picks.disliked.length ? `<p class="small muted">Not for you:</p><div class="chips">${picks.disliked.map((n) => chip(n, "dislike")).join("")}</div>` : ""}`;
 }
 
+const artistKey = artistIdentity;
+function pendingPicks(base = savedPicks || { loved: [], disliked: [] }) {
+  const picks = { loved: [...base.loved], disliked: [...base.disliked] };
+  for (const { artist, verdict } of pickIntents) {
+    picks.loved = picks.loved.filter((name) => artistKey(name) !== artistKey(artist));
+    picks.disliked = picks.disliked.filter((name) => artistKey(name) !== artistKey(artist));
+    if (verdict === "love") picks.loved.push(artist);
+    if (verdict === "dislike") picks.disliked.push(artist);
+  }
+  return picks;
+}
+
+function announcePicks() {
+  document.dispatchEvent(new CustomEvent("sideband-picks", { detail: pendingPicks() }));
+  updateBuildControls();
+}
+
+function saveArtistPick(artist, verdict) {
+  const intent = { id: ++pickIntentSeq, artist, verdict };
+  pickIntents.push(intent);
+  pickSaving++;
+  announcePicks();
+  const work = async () => {
+    try {
+      savedPicks = await api("/api/picks", { method: "POST", body: { artist, verdict } });
+      // Refresh counts/readiness after the write, without redrawing whichever view is open.
+      await refreshState().catch(() => {});
+      return savedPicks;
+    } finally {
+      pickIntents = pickIntents.filter((item) => item.id !== intent.id);
+      pickSaving--;
+      announcePicks();
+    }
+  };
+  const result = pickQueue.then(work, work);
+  pickQueue = result.catch(() => {});
+  return result;
+}
+
+function artistPickerMarkup() {
+  return `<section class="artist-starter" aria-labelledby="artist-heading">
+    <div class="artist-picker-head"><div><h2 id="artist-heading">Tap the artists you love</h2><p class="muted">Choose familiar favourites. Each tap saves your taste.</p></div><p id="artist-count" class="artist-count" role="status"></p></div>
+    <div class="artist-styles" role="group" aria-label="Browse artists by style"><button type="button" data-style="" aria-pressed="true">All styles</button>${ARTIST_STYLES.map((style) => `<button type="button" data-style="${esc(style.id)}" aria-pressed="false">${esc(style.label)}</button>`).join("")}</div>
+    <div id="artist-grid" class="artist-grid" role="group" aria-label="Artists to choose"></div>
+    <div class="row artist-browse"><button id="artist-more" type="button">Show more artists</button><p class="small muted" id="artist-browse-hint"></p></div>
+    <div class="artist-selected"><h3>Your favourites</h3><div id="pick-chips" tabindex="-1"></div></div>
+    <p id="artist-save-status" class="small" role="status"></p>
+    <div class="row build-row artist-build"><button class="primary" id="build"></button><a class="button" href="#taste" id="picker-taste" ${state.has_data ? "" : "hidden"}>View my taste</a><span class="small muted" id="build-hint"></span></div>
+  </section>`;
+}
+
 function updateBuildControls() {
   const btn = $("#build");
   if (!btn) return;
   const ready = canBuild();
   const onlyOpen = state.graph_ready && ["current", "history", "more_history", "taste"].includes(nextRecommendationAction(state));
-  btn.disabled = !ready || state.job.running || importing || quickSaving || (state.lookup_available === false && !onlyOpen);
+  btn.disabled = !ready || state.job.running || importing || quickSaving || pickSaving > 0 || (state.lookup_available === false && !onlyOpen);
   btn.textContent = buildLabel();
   const historyButton = $("#prepare-history");
   if (historyButton) {
     historyButton.hidden = !state.plays;
-    historyButton.disabled = state.job.running || importing || quickSaving || (state.lookup_available === false && !onlyOpen);
+    historyButton.disabled = state.job.running || importing || quickSaving || pickSaving > 0 || (state.lookup_available === false && !onlyOpen);
     historyButton.textContent = buildLabel();
   }
-  [$("#clear-data"), $("#clear-fb")].forEach((b) => { if (b) b.disabled = importing || quickSaving; });
+  [$("#clear-data"), $("#clear-fb"), $("#backup-save"), $("#backup-file")].forEach((b) => { if (b) b.disabled = importing || quickSaving || pickSaving > 0; });
   const files = $("#files");
-  if (files) files.disabled = importing || quickSaving;
+  if (files) files.disabled = importing || quickSaving || pickSaving > 0;
   const drop = $("#drop");
-  if (drop) drop.setAttribute("aria-disabled", String(importing || quickSaving));
+  if (drop) drop.setAttribute("aria-disabled", String(importing || quickSaving || pickSaving > 0));
+  document.querySelectorAll("[data-artist-toggle], #pick-chips button, #pick-results button").forEach((button) => { button.disabled = importing || quickSaving; });
   const hint = $("#build-hint");
   if (!hint) return;
   if (state.lookup_available === false) hint.textContent = "Your favourites can be saved here now. Connect the lookup service to find new music.";
-  else if (quickSaving) hint.textContent = "Saving your favourites. Your existing picks and ratings are kept.";
+  else if (quickSaving || pickSaving) hint.textContent = "Saving your favourites…";
   else if (importing) hint.textContent = "Finish importing first. Your favourite picks are kept.";
   else if (state.job.running) hint.textContent = "Working on it (see the progress bar). Picks you add meanwhile are used when you update next.";
-  else if (!ready) hint.textContent = "Paste a few favourite artists or songs above, then review and save them.";
+  else if (!ready) hint.textContent = "Tap a few artists you love to get started.";
   else if (!state.plays && (state.input_summary?.positive_artists ?? state.picks.loved) < 3) hint.textContent = "A few more different artists can broaden your taste map, but you can start now.";
   else hint.textContent = state.plays
     ? `Maps your taste and checks the best settings from your history in one step${BROWSER ? "; keep this page open" : ""}. The first run can take several minutes.`
@@ -887,8 +951,8 @@ function buildLabel() {
 function quickStarterMarkup() {
   const kind = store("mf.quickKind") === "songs" ? "songs" : "artists";
   const draft = (store("mf.quickDraft") || "").slice(0, 200000);
-  return `<section class="quick-starter" aria-labelledby="quick-heading"><h2 id="quick-heading">Start with music you already love</h2>
-    <p>Paste favourites or a playlist list. No Spotify export, sign-in or waiting required. You review the names before saving them ${WHERE}.</p>
+  return `<section class="quick-starter" aria-labelledby="quick-heading"><h2 id="quick-heading">Add a music list or playlist file</h2>
+    <p class="small muted">Already have a list? Paste or upload it here.</p>
     <form id="quick-form">
       <fieldset class="quick-kind"><legend>What are you adding?</legend><label><input type="radio" name="quick-kind" value="artists" ${kind === "artists" ? "checked" : ""}> Favourite artists</label><label><input type="radio" name="quick-kind" value="songs" ${kind === "songs" ? "checked" : ""}> Favourite songs or playlist</label></fieldset>
       <label for="quick-text" id="quick-text-label">${kind === "songs" ? "Artist — Song, one per line" : "Artist names, one per line"}</label>
@@ -901,8 +965,7 @@ function quickStarterMarkup() {
     <div id="quick-review"></div>
     <div class="row" id="quick-save-controls" hidden><button id="quick-use" class="primary" disabled>Use this taste</button><button id="quick-edit" class="quiet">Edit my text</button></div>
     <p id="quick-saved" class="small muted">${state.has_data ? `Saved input: ${esc(basisText())}.` : "Names are added to your saved taste only after you choose “Use this taste”."}</p>
-    <div class="row build-row"><button class="primary" id="build"></button><a class="button" href="#taste" id="quick-taste" ${state.has_data ? "" : "hidden"}>View my saved taste</a><span class="small muted" id="build-hint"></span></div>
-    <p class="small muted">Your draft stays in this browser so you can return to it. Favourites help Sideband find related artists and songs without creating listening history or an accuracy score. Saving them works without music lookups; finding new music needs a connected service.</p>
+    <a href="#taste" id="quick-taste" ${state.has_data ? "" : "hidden"}>View my saved taste</a>
   </section>`;
 }
 
@@ -925,8 +988,8 @@ function bindQuickStarter(chipsBox) {
   let busy = false;
   const update = () => {
     previewButton.disabled = busy || quickSaving || !text.value.trim();
-    useButton.disabled = busy || quickSaving || importing || !quickReviewCurrent(review, text.value, effectiveKind(), filename);
-    fileButton.disabled = busy || quickSaving || importing;
+    useButton.disabled = busy || quickSaving || importing || pickSaving > 0 || !quickReviewCurrent(review, text.value, effectiveKind(), filename);
+    fileButton.disabled = busy || quickSaving || importing || pickSaving > 0;
   };
   form.addEventListener("input-state", update);
   const invalidate = () => {
@@ -1008,7 +1071,7 @@ function bindQuickStarter(chipsBox) {
     finally { busy = false; fileInput.value = ""; if (form.isConnected) update(); }
   });
   useButton.addEventListener("click", async () => {
-    if (quickSaving || importing || !quickReviewCurrent(review, text.value, effectiveKind(), filename)) return;
+    if (quickSaving || importing || pickSaving > 0 || !quickReviewCurrent(review, text.value, effectiveKind(), filename)) return;
     const snapshot = { text: review.text, kind: review.kind, name: review.name };
     quickSaving = true;
     text.disabled = true;
@@ -1019,9 +1082,9 @@ function bindQuickStarter(chipsBox) {
     try {
       const saved = await api("/api/quick-input", { method: "POST", body: { ...snapshot, preview: false } });
       await refreshState();
-      if (chipsBox.isConnected && saved.picks) chipsBox.innerHTML = pickChips(saved.picks);
+      if (saved.picks) { savedPicks = saved.picks; announcePicks(); }
       store("mf.quickDraft", "");
-      if (!form.isConnected) { toast("Your favourites were saved locally."); return; }
+      if (!form.isConnected) return;
       const added = saved.added_library_items || 0;
       status.textContent = `${added ? `${fmt(added)} new favourite${added === 1 ? "" : "s"} saved.` : "These favourites are already saved."} ${state.lookup_available === false ? "Your saved taste is ready to view. New music discovery needs the lookup service." : "Choose “Find my music” or “Update my recommendations” to use them."}${saved.removed_disliked_picks ? ` ${fmt(saved.removed_disliked_picks)} previous “Not for me” choice${saved.removed_disliked_picks === 1 ? " was" : "s were"} replaced by these favourites.` : ""}`;
       $("#quick-saved").textContent = `Saved input: ${basisText()}. Your plays and ratings are kept.`;
@@ -1044,13 +1107,18 @@ function bindQuickStarter(chipsBox) {
 
 async function viewSetup() {
   const mine = routeSeq;
+  const intentAtStart = pickIntentSeq;
+  const savedAtStart = savedPicks;
   const picks = await api("/api/picks");
   if (mine !== routeSeq) return;
+  // An older read must not undo a save that finished while this view was opening.
+  if (!savedPicks || (!pickSaving && intentAtStart === pickIntentSeq && savedAtStart === savedPicks)) savedPicks = picks;
   main.innerHTML = `
-    <div class="view-head"><div><h1>Find the music you’ll love — and see why.</h1>
-      <p>Start now with favourite artists, songs or a playlist list. Sideband uses those signals to find music around your taste. Existing listening history is optional.</p></div></div>
+    <div class="view-head"><div><h1>Your next favourite starts here.</h1>
+      <p>Pick music you know. Discover music you’ll love.</p></div></div>
     ${BROWSER && IOS && !STANDALONE && !state.demo ? `<div class="note"><p><b>On an iPhone, do this first:</b> tap Share → <b>Add to Home Screen</b>, then open Sideband from the new icon and do the steps below there. The Home Screen app keeps its own copy of your data, separate from Safari, and Safari may delete website data after about a week without a visit.</p></div>` : ""}
-    ${quickStarterMarkup()}
+    ${artistPickerMarkup()}
+    <details class="section"><summary>More ways to add music</summary><div class="stack">${quickStarterMarkup()}</div></details>
     <details id="history-details" class="section export-help"><summary>Optional: add existing listening history</summary><div class="stack">
       <div><h2>Add a Spotify export you already have</h2>
         <p>Already have a Spotify export? Choose the ZIP or all its JSON files together. Importing it again adds only new plays, and keeps your picks and ratings.</p>
@@ -1060,23 +1128,22 @@ async function viewSetup() {
         <ul class="file-log" id="file-log"></ul>
         <p class="small" id="data-status" role="status">${state.plays ? `${fmt(state.plays)} plays imported.` : "No history imported yet."}</p>
         <div class="row"><button class="primary" id="prepare-history" ${state.plays ? "" : "hidden"}>Improve from my history</button><a href="#accuracy" ${state.plays ? "" : "hidden"} id="history-accuracy">See my accuracy</a></div>
-        <p class="small muted">A real history export enables tests against later listening. Your pasted favourites work now, so you don’t need to request or wait for an export.</p></div>
+        <p class="small muted">History enables accuracy tests against later listening. Your picked favourites already work.</p></div>
     </div></details>
-    <section class="section"><h2>Refine one artist at a time</h2>
-        <p>Search to confirm an artist’s name when lookups are connected, or mark artists you don’t enjoy. You can also add a name directly using the paste box above.</p>
+    <details class="section"><summary>Search for another artist</summary><div class="stack">
+        <p class="small muted">Search the full catalogue, or mark artists you don’t enjoy.</p>
         <form id="pick-form" class="picker" role="search" autocomplete="off"><label for="pick-q" class="small">Artist</label>
           <input id="pick-q" type="search" placeholder="Start typing an artist’s name" enterkeyhint="search" autocomplete="off" autocapitalize="off" spellcheck="false"></form>
         <ul class="pick-results" id="pick-results"></ul>
         <p class="small muted" id="pick-status" role="status"></p>
-        <div id="pick-chips" tabindex="-1">${pickChips(picks)}</div>
-    </section>
-    ${BROWSER ? `<section class="section note"><h2>Where your data lives</h2>
+    </div></details>
+    ${BROWSER ? `<details class="section"><summary>Where your data lives</summary><div class="stack">
       <p>Your picks, listening history and ratings are saved ${WHERE}, not on a server. Other devices start empty${IOS ? ", and on an iPhone the Home Screen app and Safari each keep their own copy" : ""}. Clearing this site’s data in the browser settings deletes it.</p>
-      ${state.demo ? `<p><a href="./">Leave the demo</a></p>` : `<p>Curious first? <a href="?demo=1">Try it with a simulated listener</a> (nothing is saved).</p>`}</section>` : ""}
-    ${!state.demo ? `<section class="section"><h2>Backup and restore</h2>
+      ${state.demo ? `<p><a href="./">Leave the demo</a></p>` : `<p>Curious first? <a href="?demo=1">Try it with a simulated listener</a> (nothing is saved).</p>`}</div></details>` : ""}
+    ${!state.demo ? `<details class="section"><summary>Backup and restore</summary><div class="stack">
       <p>Your picks, ratings and imported listening history stay ${WHERE} when you close the app. Save a backup before changing devices or removing the app.</p>
       <div class="row"><button id="backup-save">Save a backup</button><label class="drop" for="backup-file">Restore a backup</label>
-      <input id="backup-file" type="file" accept=".json,application/json" hidden></div></section>` : ""}
+      <input id="backup-file" type="file" accept=".json,application/json" hidden></div></div></details>` : ""}
     <details class="section"><summary>Manage or delete my data</summary>
       <div class="row"><button id="clear-data">Delete my picks and listening data</button><button id="clear-fb">Delete my ratings</button></div></details>`;
 
@@ -1092,6 +1159,7 @@ async function viewSetup() {
   });
   $("#backup-file")?.addEventListener("change", async event => {
     const file = event.target.files[0]; if (!file) return;
+    if (importing || quickSaving || pickSaving) { event.target.value = ""; toast("Finish saving your music before restoring a backup."); return; }
     if (file.size > 128 * 1024 * 1024) { toast('That backup is too large (maximum 128 MB).'); return; }
     if (!confirm('Replace the picks, ratings and listening history on this device with this backup? Save a backup of your current data first.')) return;
     try { await api('/api/restore', { method: 'POST', body: file }); location.reload(); }
@@ -1105,27 +1173,100 @@ async function viewSetup() {
   const pickStatus = $("#pick-status");
   const chipsBox = $("#pick-chips");
   bindQuickStarter(chipsBox);
-  const say = (text) => { if (pickStatus.isConnected) pickStatus.textContent = text; };
+  const grid = $("#artist-grid");
+  const styleButtons = [...document.querySelectorAll("[data-style]")];
+  const moreButton = $("#artist-more");
+  const pickerStatus = $("#artist-save-status");
+  let chosen = pendingPicks();
+  let styles = [];
+  let seenNames = [];
+  const stillHere = () => mine === routeSeq && grid.isConnected;
+  const syncPicks = (now) => {
+    if (!stillHere()) return;
+    chosen = now;
+    const focused = document.activeElement;
+    const focusedChip = focused?.closest("#pick-chips button[data-unpick]")?.dataset.unpick;
+    const focusIndex = focusedChip ? [...chipsBox.querySelectorAll("button")].indexOf(focused) : -1;
+    chipsBox.innerHTML = pickChips(now);
+    if (focusedChip) {
+      const chips = [...chipsBox.querySelectorAll("button")];
+      (chips.find((button) => artistKey(button.dataset.unpick) === artistKey(focusedChip)) || chips[Math.min(focusIndex, chips.length - 1)] || chipsBox).focus();
+    }
+    const loved = new Set(now.loved.map(artistKey));
+    const disliked = new Set(now.disliked.map(artistKey));
+    grid.querySelectorAll("button[data-artist-toggle]").forEach((button) => {
+      const selected = loved.has(artistKey(button.dataset.artistToggle));
+      button.setAttribute("aria-pressed", String(selected));
+      button.setAttribute("aria-label", `${selected ? "Remove" : "Pick"} ${button.dataset.artistToggle}${selected ? " from" : " as one of"} my favourites`);
+      button.querySelector(".artist-choice-mark").textContent = selected ? "✓ Picked" : "+ Pick";
+    });
+    results.querySelectorAll("li[data-name]").forEach((item) => {
+      item.querySelectorAll("button[data-pick]").forEach((button) => {
+        button.setAttribute("aria-pressed", String((button.dataset.pick === "love" ? loved : disliked).has(artistKey(item.dataset.name))));
+      });
+    });
+    $("#artist-count").textContent = `${fmt(now.loved.length)} favourite${now.loved.length === 1 ? "" : "s"} picked`;
+    pickerStatus.textContent = pickSaving ? "Saving your choices…" : now.loved.length ? "Saved. You can change your picks anytime." : "";
+    $("#picker-taste").hidden = !(now.loved.length || state.has_data);
+    const next = artistChoices({ styles, selected: now.loved, excluded: [...now.disliked, ...seenNames], limit: 24 });
+    moreButton.textContent = next.length ? "Show more artists" : "Back to first artists";
+    moreButton.dataset.restart = String(!next.length);
+  };
+  const drawGrid = () => {
+    // New selections can change the catalog order. Exclude boards already shown
+    // rather than offsetting into a newly ranked list and skipping artists.
+    const items = artistChoices({ styles, selected: chosen.loved, excluded: [...chosen.disliked, ...seenNames], limit: 24 });
+    seenNames.push(...items.map((artist) => artist.name));
+    grid.innerHTML = items.length ? items.map((artist) => `<button type="button" class="artist-choice" data-artist-toggle="${esc(artist.name)}" aria-pressed="false"><span class="artist-choice-name">${esc(artist.name)}</span><span class="artist-choice-mark" aria-hidden="true">+ Pick</span></button>`).join("") : `<p class="muted">You’ve reached the end of this selection. Try another style.</p>`;
+    $("#artist-browse-hint").textContent = styles.length ? `Browsing ${ARTIST_STYLES.find((style) => style.id === styles[0]).label.toLowerCase()}.` : "Any style counts. Pick what you enjoy.";
+    syncPicks(chosen);
+    updateBuildControls();
+  };
+  setupPickListener = (event) => syncPicks(event.detail);
+  document.addEventListener("sideband-picks", setupPickListener);
+  drawGrid();
+  styleButtons.forEach((button) => button.addEventListener("click", () => {
+    styles = button.dataset.style ? [button.dataset.style] : [];
+    seenNames = [];
+    styleButtons.forEach((item) => item.setAttribute("aria-pressed", String(item === button)));
+    drawGrid();
+  }));
+  moreButton.addEventListener("click", () => {
+    if (moreButton.dataset.restart === "true") seenNames = [];
+    drawGrid();
+    grid.querySelector("button")?.focus();
+  });
+  grid.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-artist-toggle]");
+    if (!button || importing || quickSaving) return;
+    const name = button.dataset.artistToggle;
+    const verdict = chosen.loved.some((artist) => artistKey(artist) === artistKey(name)) ? "remove" : "love";
+    saveArtistPick(name, verdict).catch((error) => {
+      if (stillHere()) pickerStatus.textContent = `Couldn’t save ${name}: ${error.message}. Tap again to retry.`;
+    });
+  });
+  const say = (text) => { if (stillHere()) pickStatus.textContent = text; };
   let seq = 0;
   let timer;
   const search = async (q) => {
     const mine = ++seq;
-    if (!results.isConnected) return;
+    if (!stillHere()) return;
     if (!q) { results.innerHTML = ""; say(""); return; }
     if (state.lookup_available === false) {
-      results.innerHTML = `<li class="muted">Artist search needs a connected lookup service. You can import history above and view your saved taste now.</li>`;
+      results.innerHTML = `<li class="muted">Artist search needs a connected lookup service. The artist buttons above work now.</li>`;
       say("Artist search is unavailable until the lookup service connects.");
       return;
     }
     results.innerHTML = `<li class="loading">Searching…</li>`;
     try {
       const res = await api(`/api/search/artists?q=${enc(q)}`);
-      if (mine !== seq || !results.isConnected) return; // a newer search or view is on its way
+      if (mine !== seq || !stillHere()) return; // a newer search or view is on its way
       results.innerHTML = res.items.length ? res.items.map(pickRow).join("")
         : `<li class="muted">No artist called “${esc(q)}” found. Check the spelling?</li>`;
+      syncPicks(chosen);
       say(res.items.length ? `${res.items.length} artist${res.items.length === 1 ? "" : "s"} found.` : "No artist found.");
     } catch (err) {
-      if (mine !== seq || !results.isConnected) return;
+      if (mine !== seq || !stillHere()) return;
       results.innerHTML = `<li class="error">${esc(err.message)}</li>`;
       say(err.message);
     }
@@ -1134,46 +1275,27 @@ async function viewSetup() {
   input.addEventListener("input", () => { seq++; clearTimeout(timer); timer = setTimeout(() => search(input.value.trim()), 350); });
   $("#pick-form").addEventListener("submit", (e) => { e.preventDefault(); clearTimeout(timer); search(input.value.trim()); });
 
-  const afterPick = async (now) => {
-    if (chipsBox.isConnected) chipsBox.innerHTML = pickChips(now);
-    await refreshState();
-    if (chipsBox.isConnected) updateBuildControls();
-  };
   results.addEventListener("click", async (e) => {
     const btn = e.target.closest("button[data-pick]");
-    if (!btn) return;
+    if (!btn || importing || quickSaving) return;
     const li = btn.closest("li[data-name]");
-    if (li.dataset.saving) return;
-    li.dataset.saving = "1";
-    const buttons = li.querySelectorAll("button[data-pick]");
-    buttons.forEach((b) => { b.disabled = true; });
     const name = li.dataset.name;
     const verdict = btn.getAttribute("aria-pressed") === "true" ? "remove" : btn.dataset.pick;
     try {
-      const now = await api("/api/picks", { method: "POST", body: { artist: name, verdict } });
-      li.querySelectorAll("button[data-pick]").forEach((b) => b.setAttribute("aria-pressed", String(verdict !== "remove" && b === btn)));
-      await afterPick(now);
+      await saveArtistPick(name, verdict);
+      if (!stillHere()) return;
       say(verdict === "love" ? `${name} added to your favourites.` : verdict === "dislike" ? `${name} marked as not for you.` : `${name} removed.`);
-    } catch (err) { toast(err.message); }
-    finally { delete li.dataset.saving; buttons.forEach((b) => { b.disabled = false; }); }
+    } catch (err) { if (stillHere()) say(err.message); }
   });
   $("#pick-chips").addEventListener("click", async (e) => {
     const btn = e.target.closest("button[data-unpick]");
-    if (!btn) return;
+    if (!btn || importing || quickSaving) return;
     const name = btn.dataset.unpick;
-    const index = [...chipsBox.querySelectorAll(".pick-chip")].indexOf(btn);
     try {
-      const now = await api("/api/picks", { method: "POST", body: { artist: name, verdict: "remove" } });
-      results.querySelectorAll("li[data-name]").forEach((li) => {
-        if (li.dataset.name === name) li.querySelectorAll("button[data-pick]").forEach((b) => b.setAttribute("aria-pressed", "false"));
-      });
-      await afterPick(now);
-      if (!chipsBox.isConnected) return;
-      // keep keyboard focus nearby rather than losing it with the removed chip
-      const chips = chipsBox.querySelectorAll(".pick-chip");
-      (chips[Math.min(index, chips.length - 1)] || chipsBox).focus();
+      await saveArtistPick(name, "remove");
+      if (!stillHere()) return;
       say(`${name} removed.`);
-    } catch (err) { toast(err.message); }
+    } catch (err) { if (stillHere()) pickerStatus.textContent = `Couldn’t remove ${name}: ${err.message}. Try again.`; }
   });
   const openRecommendations = () => {
     if (location.hash === "#for-you") route();
@@ -1189,7 +1311,7 @@ async function viewSetup() {
   const dataStatus = $("#data-status");
   const upload = async (files) => {
     if (!files.length) return;
-    if (importing || quickSaving) { toast("Music is already being saved. Choose these files again when it finishes."); return; }
+    if (importing || quickSaving || pickSaving) { toast("Music is already being saved. Choose these files again when it finishes."); return; }
     importing = true;
     filesInput.disabled = true;
     drop.setAttribute("aria-disabled", "true");
@@ -1215,6 +1337,8 @@ async function viewSetup() {
         }
       }
       await refreshState();
+      savedPicks = await api("/api/picks");
+      announcePicks();
       const nextImportStep = state.lookup_available === false
         ? "Your taste profile is ready. Connect the lookup service to find new music."
         : state.personalization?.can_evaluate
