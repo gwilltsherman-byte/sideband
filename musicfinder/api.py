@@ -106,6 +106,14 @@ def dispatch_steps(app: MusicFinder, method: str, path: str, query: dict[str, li
                 return 200, (yield from app.add_feedback_steps(
                     str(data.get("artist", "")), str(data.get("verdict", "")), str(data.get("track", "")),
                     data.get("context") or {}))
+            if path == "/api/interactions":
+                from musicfinder.interactions import make_interaction
+                event = make_interaction(data)
+                with app._lock:
+                    accepted = event is not None and app.store.add_interaction(event)
+                    if accepted:
+                        app._invalidate()
+                return 200, {"accepted": accepted}
             if path == "/api/picks":
                 return 200, app.set_pick(str(data.get("artist", "")), str(data.get("verdict", "")))
             if path == "/api/clear":

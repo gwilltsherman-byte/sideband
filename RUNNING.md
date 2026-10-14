@@ -20,8 +20,9 @@ lookups need an internet connection.
 
 In **Setup > Backup and restore**, save a backup before changing devices or
 clearing app data. Restore that file in the installed app on the other device.
-The backup contains your picks, ratings, listening history and music map, but
-not credentials. Each device keeps its own data; it does not sync automatically.
+The backup contains your picks, ratings, listening history, preview/link interest
+signals and music map, but not credentials. Each device keeps its own data; it
+does not sync automatically. Older backups still restore correctly.
 
 ## Get your first recommendations
 
@@ -49,6 +50,17 @@ You can also pick artists you like and choose **Find my music** before an export
 arrives. On For You, start with ten artists, listen, rate them, then choose
 **Apply ratings to my list**. You can undo a rating and choose 20 or 30 artists
 at a time; Sideband remembers your list size and adventurous setting.
+
+In Songs, choose **Like** or **Dislike** on an individual song, then refresh the
+list to use your ratings. Dislike hides that song and lowers related matches;
+it does not reject its entire artist. **Already know** keeps familiar songs out
+of discovery. Manage individual saved ratings in **Your taste**, including undo
+after a song has disappeared from the recommendation list.
+
+Listening to a preview for ten seconds or opening a music link adds a weaker
+interest signal. Those signals are capped, fade with time, and respect your
+explicit choices. They are saved on this device; they do not count as full
+streaming plays or as Like/Dislike ratings in the accuracy view.
 
 ## Optional local development on Mac
 

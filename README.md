@@ -4,6 +4,21 @@ Sideband helps you find artists and songs from music you already enjoy. **Search
 
 Start with ten recommendations, listen, and mark **Like**, **Not for me** or **Already know**. Ratings immediately change the taste profile; **Apply ratings** updates the visible list without moving you elsewhere. You can undo a rating, and your adventurous setting and list length survive a reload.
 
+Songs have **Like**, **Dislike**, **Already know** and **Undo** controls too.
+Liking a song makes it a seed for related songs. Disliking it removes that song,
+including alternate remaster names, and reduces related matches. It does not
+reject every song by its artist. Distinct song ratings also contribute bounded
+evidence about that artist; an explicit artist preference carries more weight.
+**Your taste** keeps saved ratings available so you can change your mind later.
+
+Sideband also learns weaker interest signals from listening to previews and
+opening music links. A preview must actually play for at least ten seconds;
+seeking, buffering and failed playback do not count. Repeated signals are
+capped and fade with time, and cannot override an explicit dislike. Opening
+Spotify records interest in a link, not evidence that you played a song there.
+These signals stay on your device and do not become streaming-history plays
+or inflate the rating-based accuracy results.
+
 ## Install on iPhone or Mac
 
 [Open Sideband](https://sideband.netlify.app) in Safari. The hosted app works

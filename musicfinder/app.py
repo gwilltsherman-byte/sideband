@@ -14,7 +14,7 @@ from typing import Callable
 
 from musicfinder.evaluation import EvalConfig, ModelConfig, backtest_steps
 from musicfinder.explore import genre_shares, territories
-from musicfinder.feedback import calibration, feedback_stats, like_probability
+from musicfinder.feedback import calibration, feedback_stats, latest_by_item, like_probability
 from musicfinder.graph import CrawlConfig, KnowledgeGraph, annotate_steps, crawl_steps, expand_steps
 from musicfinder.ingest import ImportResult, load_paths, parse_bytes, parse_document, reconcile, parse_quick_input
 from musicfinder.models import Feedback, LibraryItem, Play
@@ -232,18 +232,33 @@ class MusicFinder:
 
     def input_summary(self) -> dict:
         library = self.library()
+        ratings = list(latest_by_item(self.store.feedback()).values())
+        explicit_profile = build_profile([], library, feedback=ratings)
+        blocked = explicit_profile.blocked_artists()
         counts = {kind: sum(i.kind == kind for i in library) for kind in
                   ("picked_artist", "saved_track", "playlist_track", "followed_artist")}
-        positive = [i for i in library if i.kind in ("picked_artist", "saved_track", "playlist_track", "saved_album", "followed_artist")]
+        positive = [i for i in library if i.kind in ("picked_artist", "saved_track", "playlist_track", "saved_album", "followed_artist")
+                    and artist_key(i.artist) not in blocked]
         songs: dict[tuple[str, str], dict] = {}
         artists: dict[str, str] = {}
         for i in positive:
             artists.setdefault(artist_key(i.artist), i.artist)
             if i.kind in ("saved_track", "playlist_track") and i.track:
-                songs.setdefault((artist_key(i.artist), track_key(i.track)), {"artist": i.artist, "track": i.track})
+                key = (artist_key(i.artist), track_key(i.track))
+                t = explicit_profile.tracks.get(key)
+                if t and not t.banned and t.feedback != "dislike":
+                    songs.setdefault(key, {"artist": i.artist, "track": i.track})
+        likes = [f for f in ratings if f.verdict == "like" and f.artist_key not in blocked
+                 and (not f.track_key or not explicit_profile.tracks[f.item_key].banned)]
+        for f in likes:
+            artists.setdefault(f.artist_key, f.artist)
+            if f.track_key:
+                songs.setdefault(f.item_key, {"artist": f.artist, "track": f.track})
         return {"picked_artists": counts["picked_artist"], "saved_tracks": counts["saved_track"],
                 "playlist_tracks": counts["playlist_track"], "followed_artists": counts["followed_artist"],
                 "library_items": len(positive), "positive_artists": len(artists),
+                "liked_artists": sum(not f.track_key for f in likes),
+                "liked_songs": sum(bool(f.track_key) for f in likes),
                 "artists": list(artists.values())[:12], "songs": list(songs.values())[:12]}
 
     def clear(self, what: str = "data") -> None:
@@ -276,7 +291,8 @@ class MusicFinder:
             return self._library
 
     def has_data(self) -> bool:
-        return bool(self.plays()) or bool(self.library())
+        return (bool(self.plays()) or bool(self.library())
+                or any(f.verdict == "like" for f in latest_by_item(self.store.feedback()).values()))
 
     # ---- picked favourites (the instant start: no export needed) --------------------------------
     def search_artists(self, query: str, limit: int = 8) -> dict:
@@ -341,7 +357,7 @@ class MusicFinder:
                 if not self.has_data():
                     raise NotReady("Pick a few artists you love (or import your Spotify data) first.")
                 self._profile = build_profile(self.plays(), self.library(), self.model().taste,
-                                              feedback=self.store.feedback())
+                                              feedback=self.store.feedback(), interactions=self.store.interactions())
             return self._profile
 
     # ---- background jobs ------------------------------------------------------------------------
@@ -450,7 +466,8 @@ class MusicFinder:
         tested = bool(plays and report.get("history_signature") == signature)
         current = bool(plays and model.get("history_signature") == signature)
         if not plays:
-            status, action = "picks", "prepare" if self.has_data() and not self.graph_ready() else "import"
+            status = "picks"
+            action = "prepare" if self.has_data() and not self.graph_ready() else "listen" if self.has_data() else "import"
             reason = "Favourite artists and songs are enough to start. Rate the recommendations to refine your taste; listening history is optional."
         elif not self.graph_ready():
             status, action = "needs_update", "prepare"
@@ -608,7 +625,9 @@ class MusicFinder:
             raise ValueError("verdict must be like, dislike, known or clear")
         if not artist.strip():
             raise ValueError("artist is required")
-        self.store.add_feedback(Feedback(artist.strip(), verdict, track, datetime.now(timezone.utc), context or {}))
+        if not isinstance(track, str):
+            raise ValueError("track must be a song title")
+        self.store.add_feedback(Feedback(artist.strip(), verdict, track.strip(), datetime.now(timezone.utc), context or {}))
         with self._lock:
             self._profile = None
             self._pool_cache = None
@@ -626,11 +645,10 @@ class MusicFinder:
     def feedback_summary(self) -> dict:
         fbs = self.store.feedback()
         stats = feedback_stats(fbs)
-        latest: dict[str, Feedback] = {}
-        for f in fbs:
-            latest[f.artist_key] = f
+        latest = latest_by_item(fbs)
         stats["recent"] = [
-            {"artist": f.artist, "verdict": f.verdict, "ts": f.ts.isoformat(), "source": (f.context or {}).get("source")}
+            {"artist": f.artist, "track": f.track, "verdict": f.verdict, "ts": f.ts.isoformat(),
+             "kind": (f.context or {}).get("kind"), "source": (f.context or {}).get("source")}
             for f in sorted(latest.values(), key=lambda f: f.ts, reverse=True)[:30] if f.verdict != "clear"
         ]
         return stats
@@ -694,8 +712,11 @@ class MusicFinder:
         artists = []
         for a in top:
             trend = None
-            if a.engagement > 0:  # from listening (not only picked in the app)
-                ratio = a.recent_affinity / max(a.engagement, 1e-9) / steady
+            heard_engagement = a.engagement - getattr(a, "_interaction_bonus", 0.0)
+            heard_recent = (a.recent_engagement - a._feedback_bonus - a._song_feedback_bonus
+                            - getattr(a, "_interaction_bonus", 0.0))
+            if a.plays and heard_engagement > 0:
+                ratio = max(0.0, heard_recent) / max(heard_engagement, 1e-9) / steady
                 trend = "rising" if ratio > 1.6 else "steady" if ratio > 0.5 else "fading"
             artists.append({
                 "name": a.name, "streams": a.streams, "early_skips": a.early_skips,
@@ -711,7 +732,7 @@ class MusicFinder:
             "demo": self.demo,
             "plays": p.n_plays, "streams": p.n_streams, "early_skips": p.n_early_skips,
             "skip_rate": round(p.n_early_skips / max(1, p.n_streams + p.n_early_skips), 3),
-            "hours": round(hours, 1), "artists_heard": len(p.artists),
+            "hours": round(hours, 1), "artists_heard": sum(a.plays > 0 for a in p.artists.values()),
             "effective_artists": round(p.diversity(), 1),
             "first": p.first.date().isoformat() if p.first else None,
             "last": p.last.date().isoformat() if p.last else None,

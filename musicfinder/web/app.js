@@ -1,6 +1,7 @@
 // Sideband single-page UI. Plain ES module, no build step.
 import { explorationChoice, batchChoice, nextRecommendationAction, latestRequest, quickReviewCurrent, quickInputKind } from "./ui-state.js";
 import { ARTIST_STYLES, artistChoices, artistIdentity } from "./artist-picker.js";
+import { previewObservation, feedbackIdentity, feedbackIO } from "./listening-signals.js";
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const main = $("#main");
@@ -30,7 +31,7 @@ const FEATURE_NAMES = {
   support: "Linked from many of your artists",
   tag: "Matches your genre profile",
   pop: "Popularity",
-  neg: "Similar to artists you skip",
+  neg: "Similar to music you dislike or skip",
   agree: "Sources agree",
 };
 
@@ -42,6 +43,53 @@ const fmt = (n) => (n == null ? "—" : Number(n).toLocaleString());
 const compact = (n) => (n == null ? "—" : Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(n));
 const listJoin = (items) => (items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
 const spotifyUrl = (artist, title = "") => `https://open.spotify.com/search/${enc((title ? `${title} ` : "") + artist)}`;
+const spotifyLink = (artist, track = "", label = "Spotify ↗") => `<a class="button" href="${spotifyUrl(artist, track)}" target="_blank" rel="noopener" data-listen-open data-artist="${esc(artist)}" data-track="${esc(track)}">${label}</a>`;
+const feedbackChoices = new Map();
+const feedbackSaving = new Set();
+const feedbackAccess = feedbackIO({
+  read: () => api("/api/feedback"),
+  write: (body) => api("/api/feedback", { method: "POST", body }),
+});
+let feedbackRevision = 0;
+function rememberFeedback(stats) {
+  if (!Array.isArray(stats.saved_items)) return;
+  feedbackChoices.clear();
+  for (const item of stats.saved_items) feedbackChoices.set(feedbackIdentity(item.artist, item.track), item.verdict);
+}
+function saveFeedback(body) {
+  return feedbackAccess.save(body);
+}
+async function loadFeedbackChoices() {
+  try { rememberFeedback(await feedbackAccess.read()); } catch { /* a later rating can retry */ }
+}
+function savedVerdict(item, artist, track = "") {
+  const verdict = typeof item?.feedback === "string" ? item.feedback : item?.feedback?.verdict;
+  return verdict || feedbackChoices.get(feedbackIdentity(artist, track)) || "";
+}
+function ratingMessage(verdict, song = false) {
+  return (song ? {
+    like: "Liked this song. It now helps shape your taste and related recommendations.",
+    dislike: "Disliked this song. It won’t appear again and similar music moves down. Other songs by this artist can still appear.",
+    known: "Already know this song. It won’t appear again; this doesn’t count as a like or dislike.",
+    clear: "Song choice removed. It can appear again.",
+  } : {
+    like: "Liked this artist. Similar music moves up in your recommendations.",
+    dislike: "Disliked this artist. They won’t appear again and similar artists move down.",
+    known: "Already know this artist. They won’t appear again; this doesn’t count as a like or dislike.",
+    clear: "Artist choice removed. They can appear again.",
+  })[verdict] || "";
+}
+function ratingButtons(artist, track = "", verdict = "") {
+  const song = Boolean(track);
+  const label = song ? `“${track}” by ${artist}` : artist;
+  return `<button data-act="like" aria-label="Like ${song ? "this song: " : ""}${esc(label)}" aria-pressed="${verdict === "like"}">Like</button>
+    <button data-act="dislike" aria-label="Dislike ${song ? "this song: " : "this artist: "}${esc(label)}" aria-pressed="${verdict === "dislike"}">${song ? "Dislike" : "Not for me"}</button>
+    <button data-act="known" class="quiet" aria-label="Already know ${esc(label)}" aria-pressed="${verdict === "known"}">Already know${song ? "" : " them"}</button>`;
+}
+function ratingStatus(artist, track = "", verdict = "") {
+  return `<div class="rec-state" role="status"><span>${esc(ratingMessage(verdict, Boolean(track)))}</span> <button data-act="undo" class="quiet" ${verdict ? "" : "hidden"} aria-label="Undo ${track ? "song" : "artist"} choice for ${esc(track || artist)}">Undo</button></div>`;
+}
+const learningCopy = "Ratings shape your taste; preview listening and music links add weaker interest signals.";
 
 function store(key, value) {
   try {
@@ -212,7 +260,7 @@ async function route() {
     return;
   }
   if (mine !== routeSeq) return;
-  if (!canBuild() && !state.graph_exists && name !== "setup") name = "setup";
+  if (!canBuild() && !state.graph_exists && !["setup", "taste", "accuracy"].includes(name)) name = "setup";
   document.querySelectorAll(".tabs a").forEach((a) => {
     if (a.getAttribute("href") === `#${name}`) {
       a.setAttribute("aria-current", "page");
@@ -344,15 +392,16 @@ const meterKey = `<div class="meter-key small" aria-hidden="true">
 
 function recRow(r, i, scale, extraCtx = {}) {
   const tags = (r.tags || []).slice(0, 4).map(esc).join(" · ");
-  const because = r.because?.length ? `Because you play ${listJoin(r.because.slice(0, 3).map((n) => `<b>${esc(n)}</b>`))}` : "Reached through your wider taste network";
-  const shared = r.shared_tags?.length ? `; shares ${listJoin(r.shared_tags.map(esc))} with your listening.` : ".";
+  const because = r.because?.length ? `Because of ${listJoin(r.because.slice(0, 3).map((n) => `<b>${esc(n)}</b>`))} in your taste` : "Reached through your wider taste network";
+  const shared = r.shared_tags?.length ? `; shares ${listJoin(r.shared_tags.map(esc))} with your taste.` : ".";
   const prob = r.like_probability != null
     ? `<div class="prob" title="An estimate fitted to your own ratings; not independently validated">≈${Math.round(r.like_probability * 100)}% provisional like estimate</div>` : "";
   const truth = r.true_like_probability != null
     ? `<span class="truth-chip">Simulation’s true like-probability: ${Math.round(r.true_like_probability * 100)}%</span>` : "";
   const ctx = { ...(r.context || {}), ...extraCtx };
   const listeners = r.popularity ? ` · ${compact(r.popularity)} listeners` : "";
-  return `<li class="rec" data-artist="${esc(r.name)}" data-ctx="${esc(JSON.stringify(ctx))}">
+  const verdict = savedVerdict(r, r.name);
+  return `<li class="rec${verdict ? " rated" : ""}" data-artist="${esc(r.name)}" data-feedback="${esc(verdict)}" data-ctx="${esc(JSON.stringify(ctx))}">
     <div class="rec-rank">${String(i + 1).padStart(2, "0")}</div>
     <div>
       <h3 class="rec-name">${esc(r.name)}</h3>
@@ -362,12 +411,10 @@ function recRow(r, i, scale, extraCtx = {}) {
       ${truth}
       <div class="rec-actions">
         <button data-act="play" data-label="Play a preview" aria-label="Play a preview of ${esc(r.name)}">Play a preview</button>
-        <a class="button" href="${spotifyUrl(r.name)}" target="_blank" rel="noopener">Open in Spotify ↗</a>
-        <button data-act="like" aria-label="Like ${esc(r.name)}" aria-pressed="false">Like</button>
-        <button data-act="dislike" aria-label="Not for me: ${esc(r.name)}" aria-pressed="false">Not for me</button>
-        <button data-act="known" class="quiet" aria-label="Already know ${esc(r.name)}" aria-pressed="false">Already know them</button>
+        ${spotifyLink(r.name, "", "Open in Spotify ↗")}
+        ${ratingButtons(r.name, "", verdict)}
       </div>
-      <div class="rec-state" role="status"><span></span> <button data-act="undo" class="quiet" hidden aria-label="Undo rating for ${esc(r.name)}">Undo</button></div>
+      ${ratingStatus(r.name, "", verdict)}
     </div>
     <div class="rec-side">
       <div class="sticker" title="Scores higher than ${Math.floor(r.match)}% of the unfamiliar artists considered; this is not a probability" data-tip="Scores higher than ${Math.floor(r.match)}% of the unfamiliar artists considered; this is not a probability"><b>${Math.floor(r.match)}</b><span>percentile</span></div>
@@ -378,57 +425,122 @@ function recRow(r, i, scale, extraCtx = {}) {
 
 // ---------------------------------------------------------------- shared actions
 main.addEventListener("click", async (e) => {
+  const link = e.target.closest("a[data-listen-open]");
+  if (link) {
+    // Opening another app expresses interest, not an observed Spotify play.
+    recordInteraction({ artist: link.dataset.artist, track: link.dataset.track || "", kind: "external_open", event_id: interactionId() });
+    return;
+  }
   const btn = e.target.closest("button[data-act]");
   if (!btn) return;
   const row = btn.closest("[data-artist]");
   const act = btn.dataset.act;
-  if (act === "play") return playPreview(btn, row.dataset.artist, row.dataset.track);
+  if (act === "play" && row) return playPreview(btn, row.dataset.artist, row.dataset.track);
   if (act === "tag") return exploreTag(btn.dataset.tag);
   if (!["like", "dislike", "known", "undo"].includes(act) || !row || row.dataset.saving) return;
   const ctx = JSON.parse(row.dataset.ctx || "{}");
+  const track = row.dataset.track || "";
+  const identity = feedbackIdentity(row.dataset.artist, track);
+  if (feedbackSaving.has(identity)) return;
+  const verdict = act === "undo" ? "clear" : act;
+  if (verdict === row.dataset.feedback) return;
   const buttons = row.querySelectorAll("button[data-act=like],button[data-act=dislike],button[data-act=known],button[data-act=undo]");
   const message = row.querySelector(".rec-state span");
   const previousMessage = message.textContent;
   message.textContent = act === "undo" ? "Removing your rating…" : "Saving your rating…";
   row.dataset.saving = "1";
+  feedbackSaving.add(identity);
   buttons.forEach((b) => { b.disabled = true; });
   try {
-    const stats = await api("/api/feedback", { method: "POST", body: { artist: row.dataset.artist, verdict: act === "undo" ? "clear" : act, context: ctx } });
-    row.querySelectorAll("button[data-act=like],button[data-act=dislike],button[data-act=known]").forEach((b) => b.setAttribute("aria-pressed", String(b === btn)));
-    const msg = {
-      like: "Saved. This artist now counts as part of your taste and pulls similar music up.",
-      dislike: "Saved. Similar artists will be pushed down; this one won’t be shown again.",
-      known: "Noted. It won’t be recommended again (no effect on your taste).",
-      undo: "Rating removed. This artist can appear in your recommendations again.",
-    }[act];
-    const o = stats.overall;
-    row.querySelector(".rec-state span").textContent = `${msg} You’ve liked ${o.likes} of ${o.rated} rated picks so far.`;
-    row.querySelector("button[data-act=undo]").hidden = act === "undo";
-    row.classList.toggle("rated", act !== "undo");
-    const refresh = $("#refresh-recs");
+    const stats = await saveFeedback({ artist: row.dataset.artist, track, verdict, context: ctx });
+    feedbackRevision += 1;
+    rememberFeedback(stats);
+    if (verdict === "clear") feedbackChoices.delete(identity);
+    else feedbackChoices.set(identity, verdict);
+    // A song can occur in several sections. Keep every visible copy consistent.
+    for (const item of main.querySelectorAll("li[data-artist]")) {
+      if (feedbackIdentity(item.dataset.artist, item.dataset.track || "") !== identity || !item.querySelector(".rec-state")) continue;
+      item.dataset.feedback = verdict === "clear" ? "" : verdict;
+      item.querySelectorAll("button[data-act=like],button[data-act=dislike],button[data-act=known]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.act === verdict)));
+      item.querySelector(".rec-state span").textContent = ratingMessage(verdict, Boolean(track));
+      item.querySelector("button[data-act=undo]").hidden = verdict === "clear";
+      item.classList.toggle("rated", verdict !== "clear");
+    }
+    const refresh = $(track ? "#refresh-songs" : "#refresh-recs");
     if (refresh) refresh.textContent = act === "undo" ? "Refresh my list" : "Apply ratings to my list";
+    const status = $(track ? "#songs-status" : "#list-status");
+    if (status) status.textContent = "Saved. Refresh to use your updated taste. Your choice stays here until then so you can undo it.";
   } catch (err) {
     message.textContent = previousMessage;
     toast(`Couldn’t save that: ${err.message}`);
   } finally {
     delete row.dataset.saving;
+    feedbackSaving.delete(identity);
     buttons.forEach((b) => { b.disabled = false; });
   }
 });
+main.addEventListener("auxclick", (event) => {
+  const link = event.button === 1 && event.target.closest("a[data-listen-open]");
+  if (link) recordInteraction({ artist: link.dataset.artist, track: link.dataset.track || "", kind: "external_open", event_id: interactionId() });
+});
+
+function interactionId() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  const bytes = new Uint8Array(16);
+  if (globalThis.crypto?.getRandomValues) globalThis.crypto.getRandomValues(bytes);
+  else bytes.forEach((_, i) => { bytes[i] = Math.floor(Math.random() * 256); });
+  bytes[6] = (bytes[6] & 15) | 64;
+  bytes[8] = (bytes[8] & 63) | 128;
+  const hex = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+function recordInteraction(body) {
+  // Learning failures must never interrupt playback or external navigation.
+  api("/api/interactions", { method: "POST", body }).catch(() => {});
+}
 
 let playingBtn = null;
+let previewSession = null;
+let playbackSeq = 0;
+function samplePreview() {
+  if (!previewSession) return;
+  const heard = previewSession.observation.sample(player.currentTime, performance.now(), { audible: previewSession.audible, rate: player.playbackRate });
+  previewSession.audible = !player.muted && player.volume > 0;
+  return heard;
+}
+function finishPreview() {
+  if (!previewSession) return;
+  samplePreview();
+  previewSession.observation.suspend();
+  const duration = previewSession.observation.take();
+  if (duration != null) recordInteraction({ artist: previewSession.artist, track: previewSession.track, kind: "preview_listen", duration_ms: duration, event_id: previewSession.id });
+}
 function resetPlayButton() {
   if (!playingBtn) return;
   playingBtn.textContent = playingBtn.dataset.label || "Play";
   playingBtn.removeAttribute("aria-pressed");
   playingBtn = null;
 }
-player.addEventListener("ended", resetPlayButton);
-player.addEventListener("pause", resetPlayButton);
+player.addEventListener("playing", () => {
+  if (!previewSession) return;
+  previewSession.audible = !player.muted && player.volume > 0;
+  previewSession.observation.start(player.currentTime, performance.now());
+});
+player.addEventListener("timeupdate", samplePreview);
+player.addEventListener("waiting", () => { samplePreview(); previewSession?.observation.suspend(); });
+player.addEventListener("seeking", () => previewSession?.observation.suspend());
+player.addEventListener("seeked", () => { if (!player.paused) previewSession?.observation.start(player.currentTime, performance.now()); });
+player.addEventListener("volumechange", () => { samplePreview(); });
+player.addEventListener("ended", () => { finishPreview(); resetPlayButton(); });
+player.addEventListener("pause", () => { finishPreview(); resetPlayButton(); });
+window.addEventListener("pagehide", finishPreview);
 
 async function playPreview(btn, artist, track) {
   if (playingBtn === btn && !player.paused) { player.pause(); return; }
   player.pause();
+  finishPreview();
+  previewSession = null;
+  const mine = ++playbackSeq;
   btn.disabled = true;
   btn.textContent = "Finding a preview…";
   try {
@@ -438,16 +550,20 @@ async function playPreview(btn, artist, track) {
       info = await api(`/api/preview?artist=${enc(artist)}&track=${enc(t)}`);
       if (info && info.preview_url) break;
     }
+    if (mine !== playbackSeq) { btn.textContent = btn.dataset.label || "Play"; return; }
     if (!info || !info.preview_url) {
       btn.textContent = "No preview — try Spotify";
       return;
     }
+    previewSession = { artist: info.artist || artist, track: info.title || track, id: interactionId(), audible: !player.muted && player.volume > 0, observation: previewObservation() };
     player.src = info.preview_url;
     await player.play();
+    if (mine !== playbackSeq) { btn.textContent = btn.dataset.label || "Play"; return; }
     playingBtn = btn;
     btn.textContent = `Pause · “${info.title}”`;
     btn.setAttribute("aria-pressed", "true");
   } catch (err) {
+    if (mine === playbackSeq) previewSession = null;
     btn.textContent = "Preview unavailable";
   } finally {
     btn.disabled = false;
@@ -514,7 +630,8 @@ async function viewForYou() {
     <div class="recommendation-controls"><div class="row"><label for="batch-size">Artists at a time</label>
       <select id="batch-size">${[10, 20, 30].map((n) => `<option value="${n}" ${n === batchSize ? "selected" : ""}>${n}</option>`).join("")}</select>
       <button id="refresh-recs">Refresh my list</button></div>
-      <p class="small muted" id="list-status" role="status">Rate a few after listening, then refresh. Ratings change the ranking immediately.</p>
+      <p class="small muted">${learningCopy}</p>
+      <p class="small muted" id="list-status" role="status">Rate a few after listening, then refresh to see your updated taste.</p>
     </div>
     ${meterKey}
     <ol class="recs" id="recs"><li class="loading">Ranking every candidate…</li></ol>`;
@@ -525,12 +642,13 @@ async function viewForYou() {
   const requests = latestRequest();
   const load = async () => {
     const token = requests.start();
+    const revision = feedbackRevision;
     refresh.disabled = true;
     box.setAttribute("aria-busy", "true");
     status.textContent = "Updating your list…";
     try {
-      const data = await api(`/api/recommendations?n=${batchSize}&exploration=${exploration}`);
-      if (mine !== routeSeq || !requests.current(token) || !box.isConnected) return;
+      const [data] = await Promise.all([api(`/api/recommendations?n=${batchSize}&exploration=${exploration}`), loadFeedbackChoices()]);
+      if (mine !== routeSeq || !requests.current(token) || !box.isConnected || revision !== feedbackRevision) return;
       const items = data.items;
       const scale = meterScale(items);
       box.innerHTML = items.length
@@ -566,11 +684,15 @@ async function viewForYou() {
 
 // ---------------------------------------------------------------- Songs
 function songRow(s) {
-  return `<li class="song" data-artist="${esc(s.artist)}" data-track="${esc(s.title)}">
-    <div><div class="song-title">${esc(s.title)} <span class="muted">— ${esc(s.artist)}</span></div>
-    <div class="song-why">${esc(s.because)}</div></div>
-    <div class="row"><button data-act="play" data-label="Play">Play</button>
-    <a class="button" href="${spotifyUrl(s.artist, s.title)}" target="_blank" rel="noopener">Spotify ↗</a></div>
+  const verdict = savedVerdict(s, s.artist, s.title);
+  const ctx = { ...(s.context || {}), source: "songs", kind: s.kind || "song", exploration };
+  return `<li class="song song-rec${verdict ? " rated" : ""}" data-artist="${esc(s.artist)}" data-track="${esc(s.title)}" data-feedback="${esc(verdict)}" data-ctx="${esc(JSON.stringify(ctx))}">
+    <div class="song-details"><div class="song-title">${esc(s.title)} <span class="muted">— ${esc(s.artist)}</span></div>
+    <div class="song-why">${esc(s.because)}</div>
+    ${ratingStatus(s.artist, s.title, verdict)}</div>
+    <div class="song-actions"><div class="row"><button data-act="play" data-label="Play a preview" aria-label="Play a preview of ${esc(s.title)} by ${esc(s.artist)}">Play a preview</button>
+    ${spotifyLink(s.artist, s.title)}</div>
+    <div class="row song-ratings" role="group" aria-label="Your opinion of ${esc(s.title)}">${ratingButtons(s.artist, s.title, verdict)}</div></div>
   </li>`;
 }
 
@@ -580,17 +702,40 @@ async function viewSongs() {
   main.innerHTML = `
     <div class="view-head"><div><h1>Songs to try</h1>
     <p>Three kinds of picks, kept apart so you always know why a song is here.</p></div></div>
-    <p class="loading" id="songs-loading">Looking up songs… the first time this needs a few dozen lookups (about 20 seconds).</p>
+    <div class="recommendation-controls"><button id="refresh-songs">Refresh my list</button>
+    <p class="small muted">${learningCopy} Dislike applies to this song; it doesn’t exclude its whole artist. <a href="#taste">Review your saved choices</a>.</p>
+    <p class="small muted" id="songs-status" role="status">Looking up songs…</p></div>
     <div id="songs"></div>`;
-  const data = await api(`/api/songs?exploration=${exploration}`);
-  if (mine !== routeSeq) return;
-  const block = (title, lede, items) => `<section class="section"><h2>${title}</h2><p class="lede">${lede}</p>
-    ${items.length ? `<ol class="songs">${items.map(songRow).join("")}</ol>` : `<p class="muted">Nothing found for this list yet.</p>`}</section>`;
-  $("#songs-loading").remove();
-  $("#songs").innerHTML =
-    block("Songs like your favourites", "Songs that go with the ones you love most, from listening data and artist radio, weighted by how much you love each.", data.similar_song)
-    + block("From new artists", "The most-played song of each of your top new-artist matches — the usual way in.", data.new_artist)
-    + block("Unheard songs by artists you love", "Popular songs by your favourite artists that you have never played.", data.deep_cut);
+  const refresh = $("#refresh-songs");
+  const status = $("#songs-status");
+  const box = $("#songs");
+  const requests = latestRequest();
+  const load = async () => {
+    const token = requests.start();
+    const revision = feedbackRevision;
+    refresh.disabled = true;
+    box.setAttribute("aria-busy", "true");
+    status.textContent = "Looking up songs using your current taste…";
+    try {
+      const [data] = await Promise.all([api(`/api/songs?exploration=${exploration}`), loadFeedbackChoices()]);
+      if (mine !== routeSeq || !requests.current(token) || !box.isConnected || revision !== feedbackRevision) return;
+      const block = (title, lede, items) => `<section class="section"><h2>${title}</h2><p class="lede">${lede}</p>
+        ${items.length ? `<ol class="songs">${items.map(songRow).join("")}</ol>` : `<p class="muted">Nothing new found for this list yet.</p>`}</section>`;
+      box.innerHTML =
+        block("Songs like your favourites", "Songs connected to your favourites, ordered using your choices and music similarity.", data.similar_song)
+        + block("From new artists", "Songs from new artists matched to your current taste.", data.new_artist)
+        + block("Unheard songs by artists you love", "Songs from your favourite artists that aren’t in your saved listening history or choices.", data.deep_cut);
+      status.textContent = "Your song choices are saved across visits. Rate what you try, then refresh for new picks.";
+      refresh.textContent = "Refresh my list";
+    } finally {
+      if (requests.current(token) && box.isConnected) {
+        refresh.disabled = false;
+        box.setAttribute("aria-busy", "false");
+      }
+    }
+  };
+  refresh.addEventListener("click", () => load().catch((err) => toast(err.message)));
+  await load();
 }
 
 // ---------------------------------------------------------------- Explore
@@ -666,10 +811,49 @@ async function viewExplore() {
 }
 
 // ---------------------------------------------------------------- Your taste
+function savedChoiceRow(item) {
+  const track = item.track || "";
+  const ctx = item.context || (track ? { source: "songs", kind: item.kind || "song" } : {});
+  return `<li class="song song-rec rated" data-artist="${esc(item.artist)}" data-track="${esc(track)}" data-feedback="${esc(item.verdict)}" data-ctx="${esc(JSON.stringify(ctx))}">
+    <div class="song-details"><div class="song-title">${esc(track || item.artist)}${track ? ` <span class="muted">— ${esc(item.artist)}</span>` : ""}</div>
+    <div class="song-why">${track ? "Song choice" : "Artist choice"}</div>${ratingStatus(item.artist, track, item.verdict)}</div>
+    <div class="song-actions"><div class="row">${ratingButtons(item.artist, track, item.verdict)}</div>${spotifyLink(item.artist, track)}</div></li>`;
+}
+function savedChoices(fb) {
+  const items = fb.saved_items || [];
+  return `<section class="section" id="saved-choices"><h2>Your saved choices</h2>
+    <p>Change a choice or Undo it here, including songs that disappeared after you refreshed. Song and artist choices stay separate.</p>
+    ${items.length ? `<ol class="songs" id="saved-choices-list">${items.slice(0, 30).map(savedChoiceRow).join("")}</ol>
+      ${items.length > 30 ? `<button id="more-saved-choices">Show all ${fmt(items.length)} saved choices</button>` : ""}` : `<p class="muted">Your song and artist ratings will appear here.</p>`}</section>`;
+}
+function bindSavedChoices() {
+  const button = $("#more-saved-choices");
+  if (!button) return;
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    try {
+      const fb = await feedbackAccess.read();
+      if (!button.isConnected) return;
+      rememberFeedback(fb);
+      $("#saved-choices-list").innerHTML = (fb.saved_items || []).map(savedChoiceRow).join("");
+      button.remove();
+    } catch (err) { toast(err.message); button.disabled = false; }
+  });
+}
 async function viewTaste() {
   const mine = routeSeq;
-  const p = await api("/api/profile");
+  main.innerHTML = `<p class="loading">Loading your saved taste…</p>`;
+  const [p, fb] = await Promise.all([
+    api("/api/profile").catch((error) => { if (error instanceof ApiError && error.status === 409) return null; throw error; }),
+    feedbackAccess.read(),
+  ]);
   if (mine !== routeSeq) return;
+  rememberFeedback(fb);
+  if (!p) {
+    main.innerHTML = `<div class="view-head"><div><h1>Your taste so far</h1><p>Add artists you love in <a href="#setup">Setup</a> to find new music. Your saved choices are available below.</p></div></div>${savedChoices(fb)}`;
+    bindSavedChoices();
+    return;
+  }
   const genres = p.genres ? `<section><h2>Genres</h2>${bars(p.genres.slice(0, 12).map((g) => ({ label: g.tag, value: g.share, text: pct(g.share) })))}</section>` : "";
   if (!p.plays) {
     const inputs = p.input_summary || {};
@@ -681,10 +865,11 @@ async function viewTaste() {
       <div class="split section">
         <section class="stack"><div><h2>Artists from your favourites</h2><ol class="songs">${artists.map((n) => `<li class="song"><div class="song-title">${esc(n)}</div></li>`).join("")}</ol>
           ${p.picks.disliked.length ? `<p class="small muted">Not for you: ${esc(p.picks.disliked.join(", "))}</p>` : ""}</div>
-          ${songs.length ? `<div><h2>Songs you saved</h2><ol class="songs">${songs.map((s) => `<li class="song"><div><div class="song-title">${esc(s.track)}</div><div class="song-why">${esc(s.artist)}</div></div><a class="button" href="${spotifyUrl(s.artist, s.track)}" target="_blank" rel="noopener">Spotify ↗</a></li>`).join("")}</ol></div>` : ""}
+          ${songs.length ? `<div><h2>Songs you saved</h2><ol class="songs">${songs.map((s) => `<li class="song"><div><div class="song-title">${esc(s.track)}</div><div class="song-why">${esc(s.artist)}</div></div>${spotifyLink(s.artist, s.track)}</li>`).join("")}</ol></div>` : ""}
           <p class="small muted">Showing a sample of your saved input. <a href="#setup">Add or refine your favourites</a>.</p></section>
         <aside class="stack">${genres || `<p class="muted small">Genres appear once your music map is built.</p>`}</aside>
-      </div>`;
+      </div>${savedChoices(fb)}`;
+    bindSavedChoices();
     return;
   }
   const fmts = Object.entries(p.formats).map(([k, v]) => `${fmt(v)} ${k === "extended" ? "extended-history" : "account-data"} plays`).join(", ");
@@ -714,7 +899,8 @@ async function viewTaste() {
         ${p.top_tracks.length ? `<section><h2>Most-loved songs</h2><ol class="songs">${p.top_tracks.slice(0, 15).map((t) => `<li class="song" data-artist="${esc(t.artist)}" data-track="${esc(t.title)}">
           <div><div class="song-title">${esc(t.title)}</div><div class="song-why">${esc(t.artist)} · ${fmt(t.streams)} streams</div></div></li>`).join("")}</ol></section>` : ""}
       </aside>
-    </div>`;
+    </div>${savedChoices(fb)}`;
+  bindSavedChoices();
 }
 
 // ---------------------------------------------------------------- Accuracy
@@ -759,7 +945,7 @@ function metricsTable(rep) {
 
 async function viewAccuracy() {
   const mine = routeSeq;
-  const [rep, fb] = await Promise.all([api("/api/evaluation"), api("/api/feedback")]);
+  const [rep, fb] = await Promise.all([api("/api/evaluation"), feedbackAccess.read()]);
   if (mine !== routeSeq) return;
   const eligible = state.personalization?.can_evaluate ?? Boolean(state.plays);
   const intro = `<p>Sideband hides your most recent listening, predicts from everything before it, then checks the predictions against the new artists you actually went on to love or skip. Settings are chosen on an earlier window and graded on a later one they never saw.</p>`;
@@ -831,15 +1017,24 @@ async function viewAccuracy() {
 
 function liveAccuracy(fb) {
   const o = fb.overall;
+  const songs = fb.song_overall || { rated: 0 };
   const rows = Object.entries(fb.by_exploration || {});
+  const songKinds = { similar_song: "Songs like your favourites", new_artist: "From new artists", deep_cut: "Unheard songs by artists you love", song: "Other songs" };
+  const songRows = Object.entries(fb.songs_by_kind || {});
   const cal = fb.calibration;
   return `<section class="section"><h2>Live accuracy: your ratings</h2>
-    ${o.rated ? `<p>You liked <b>${o.likes} of ${o.rated}</b> rated recommendations (${pct(o.like_rate)}; 95% interval ${pct(o.ci95[0])}–${pct(o.ci95[1])}).</p>`
-      : `<p class="muted">Rate recommendations with Like / Not for me to see your like rate among the artists you rated, with an error bar.</p>`}
+    <h3>Artists</h3>
+    ${o.rated ? `<p>You liked <b>${o.likes} of ${o.rated}</b> rated artists (${pct(o.like_rate)}; 95% interval ${pct(o.ci95[0])}–${pct(o.ci95[1])}).</p>`
+      : `<p class="muted">Rate artists with Like / Not for me to see your artist like rate, with an error bar.</p>`}
     ${rows.length ? `<table><thead><tr><th>Dial setting</th><th class="num">Liked</th><th class="num">Rated</th><th class="num">Like rate (95% interval)</th></tr></thead><tbody>
       ${rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td class="num">${v.likes}</td><td class="num">${v.rated}</td><td class="num">${pct(v.like_rate)} (${pct(v.ci95[0])}–${pct(v.ci95[1])})</td></tr>`).join("")}</tbody></table>` : ""}
     <p class="small muted">${cal ? `Score-based “chance you’ll like it” estimates use your ${cal.n} ratings and remain uncertain.` : "With enough varied ratings, Sideband can estimate a chance you’ll like a recommendation. Percentile scores alone are not probabilities."}</p>
-    <p class="small muted">You choose which artists to rate, so these results describe those artists. They are not an unbiased measure of every recommendation or a guarantee about the next one.</p>
+    <h3>Songs</h3>
+    ${songs.rated ? `<p>You liked <b>${songs.likes} of ${songs.rated}</b> rated songs (${pct(songs.like_rate)}; 95% interval ${pct(songs.ci95[0])}–${pct(songs.ci95[1])}). Song ratings are counted separately from artist ratings.</p>`
+      : `<p class="muted">Use Like / Dislike on Songs to see your song like rate separately.</p>`}
+    ${songRows.length ? `<table><thead><tr><th>Song list</th><th class="num">Liked</th><th class="num">Rated</th><th class="num">Like rate (95% interval)</th></tr></thead><tbody>
+      ${songRows.map(([kind, v]) => `<tr><td>${esc(songKinds[kind] || kind)}</td><td class="num">${v.likes}</td><td class="num">${v.rated}</td><td class="num">${pct(v.like_rate)} (${pct(v.ci95[0])}–${pct(v.ci95[1])})</td></tr>`).join("")}</tbody></table>` : ""}
+    <p class="small muted">Already know choices and preview or music-link interest shape recommendations but aren’t counted as likes or dislikes. You choose which music to rate, so these results describe those choices, not every recommendation or a guarantee about the next one. <a href="#taste">Review or undo your saved choices</a>.</p>
   </section>`;
 }
 
@@ -1135,14 +1330,14 @@ async function viewSetup() {
         <p class="small muted">History enables accuracy tests against later listening. Your picked favourites already work.</p></div>
     </div></details>
     ${BROWSER ? `<details class="section"><summary>Where your data lives</summary><div class="stack">
-      <p>Your picks, listening history and ratings are saved ${WHERE}, not on a server. Other devices start empty${IOS ? ", and on an iPhone the Home Screen app and Safari each keep their own copy" : ""}. Clearing this site’s data in the browser settings deletes it.</p>
+      <p>Your picks, listening history, ratings and learned interest are saved ${WHERE}, not on a server. Other devices start empty${IOS ? ", and on an iPhone the Home Screen app and Safari each keep their own copy" : ""}. Clearing this site’s data in the browser settings deletes it.</p>
       ${state.demo ? `<p><a href="./">Leave the demo</a></p>` : `<p>Curious first? <a href="?demo=1">Try it with a simulated listener</a> (nothing is saved).</p>`}</div></details>` : ""}
     ${!state.demo ? `<details class="section"><summary>Backup and restore</summary><div class="stack">
-      <p>Your picks, ratings and imported listening history stay ${WHERE} when you close the app. Save a backup before changing devices or removing the app.</p>
+      <p>Your picks, ratings, preview and music-link interest, and imported listening history stay ${WHERE} when you close the app. Save a backup before changing devices or removing the app.</p>
       <div class="row"><button id="backup-save">Save a backup</button><label class="drop" for="backup-file">Restore a backup</label>
       <input id="backup-file" type="file" accept=".json,application/json" hidden></div></div></details>` : ""}
     <details class="section"><summary>Manage or delete my data</summary>
-      <div class="row"><button id="clear-data">Delete my picks and listening data</button><button id="clear-fb">Delete my ratings</button></div></details>`;
+      <div class="row"><button id="clear-data">Delete my picks and listening data</button><button id="clear-fb">Delete my ratings and learned interest</button></div></details>`;
 
   const backup = $("#backup-save");
   if (backup) backup.addEventListener("click", async () => {
@@ -1158,7 +1353,7 @@ async function viewSetup() {
     const file = event.target.files[0]; if (!file) return;
     if (importing || quickSaving || pickSaving) { event.target.value = ""; toast("Finish saving your music before restoring a backup."); return; }
     if (file.size > 128 * 1024 * 1024) { toast('That backup is too large (maximum 128 MB).'); return; }
-    if (!confirm('Replace the picks, ratings and listening history on this device with this backup? Save a backup of your current data first.')) return;
+    if (!confirm('Replace the picks, ratings, learned interest and listening history on this device with this backup? Save a backup of your current data first.')) return;
     try { await api('/api/restore', { method: 'POST', body: file }); location.reload(); }
     catch (error) { toast(error.message, 10000); }
     event.target.value = '';
@@ -1362,16 +1557,19 @@ async function viewSetup() {
   drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("#files").click(); } });
   drop.tabIndex = 0;
   $("#clear-data").addEventListener("click", async () => {
-    if (!confirm("Delete your picked artists and all imported listening data from Sideband? (Your Spotify account is not affected.)")) return;
+    if (!confirm("Delete your picked artists, imported listening data and learned interest from previews and music links? (Your Spotify account is not affected.)")) return;
     await api("/api/clear", { method: "POST", body: { what: "data" } });
+    previewSession = null;
     store("mf.quickDraft", "");
-    toast("Picks and listening data deleted.");
+    toast("Picks, listening data and learned interest deleted.");
     route();
   });
   $("#clear-fb").addEventListener("click", async () => {
-    if (!confirm("Delete all your Like / Not for me ratings?")) return;
+    if (!confirm("Delete all your song and artist ratings, plus learned interest from previews and music links?")) return;
     await api("/api/clear", { method: "POST", body: { what: "feedback" } });
-    toast("Ratings deleted.");
+    previewSession = null;
+    feedbackChoices.clear();
+    toast("Ratings and learned interest deleted.");
     await refreshState();
     updateBuildControls();
   });
