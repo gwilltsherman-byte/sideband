@@ -32,6 +32,8 @@ Installed iPhone/Mac web app or browser, desktop and mobile, light and dark envi
 
 Sideband is the existing product name. The user requests one independently designed, complete result, with Apple, Stripe, and Linear serving as principle references rather than templates. Product facts and working features must remain intact.
 
+Sideband’s color identity comes from independent music publishing and physical records: record-sleeve ivory, wine and aubergine structure, and amber labels. Keep it distinct from Milo’s chalk, carbon, and burnt-orange training identity. Green is reserved for positive evidence and liked feedback; generic selections and taste data use Sideband’s wine and rose family.
+
 ## Product Principles
 
 - Bring music and the next useful action forward.

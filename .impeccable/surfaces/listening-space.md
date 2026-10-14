@@ -5,7 +5,7 @@ Scope: all six Sideband routes; full interface redesign on existing engine.
 
 ## Direction contract
 
-An independent listening journal: a deep forest-green navigation rail, warm white work surface, locally served Fraunces for music names and page titles, and DM Sans for task controls and explanations. Dark mode supports evening listening. No invented album artwork. The signature is the explicit connection between each discovery and artists the listener knows, with signal detail unfolded as liner notes.
+An independent listening journal drawn from record sleeves and liner notes: an ivory work surface, deep aubergine navigation rail, wine-colored actions, amber current-destination and percentile labels, locally served Fraunces for music names and page titles, and DM Sans for task controls and explanations. Dark mode uses aubergine surfaces and pale rose accents for evening listening. Generic selections use a rose wash, taste bars use wine, and green is reserved for positive evidence and liked rows. Sideband has a distinct music identity alongside Milo’s chalk, carbon, and burnt-orange training identity. No invented album artwork. The signature is the explicit connection between each discovery and artists the listener knows, with signal detail unfolded as liner notes.
 
 First viewport: a familiar navigation shell, a prominent artist search and browsable artist names, and a persistent desktop starting-point summary. On recommendations, the listening list must arrive promptly; tuning and model details are subordinate. Mobile keeps all six destinations available and a reachable find-music action. Rating leaves the item in place with Undo, preventing the listener from losing context.
 

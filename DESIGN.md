@@ -1,51 +1,56 @@
 ---
 name: "Sideband"
-description: "An independent listening journal: familiar music leads to new discoveries."
+description: "An independent listening journal in record-sleeve ivory, wine, and amber."
 colors:
-  paper: "#f7f8f3"
-  paper-raised: "#fffefa"
-  paper-sunk: "#edf0e8"
-  ink: "#202e27"
-  ink-2: "#46584d"
-  muted: "#637067"
-  line: "#dce2d7"
-  line-strong: "#829384"
-  accent: "#315d48"
-  accent-hover: "#244735"
-  rail: "#183e30"
-  rail-ink: "#f3f4e8"
-  rail-muted: "#becfc1"
-  rail-active: "#325541"
-  sticker: "#e4ebda"
-  sticker-ink: "#33543d"
-  button-ink: "#fffefa"
-  pos: "#347754"
-  neg: "#b64c32"
-  pos-wash: "#e8f0e4"
-  neg-wash: "#faeee8"
-  focus: "#487958"
-  error-ink: "#a53f29"
-  dark-paper: "#121d19"
-  dark-paper-raised: "#192620"
-  dark-paper-sunk: "#223129"
-  dark-ink: "#edf1e7"
-  dark-ink-2: "#c4d0c6"
-  dark-muted: "#a1b2a6"
-  dark-line: "#34463a"
-  dark-line-strong: "#657a69"
-  dark-accent: "#b6d5a8"
-  dark-accent-hover: "#d0e9c7"
-  dark-rail: "#0c2118"
-  dark-rail-active: "#284734"
-  dark-sticker: "#304b37"
-  dark-sticker-ink: "#c4dfb5"
-  dark-button-ink: "#16221a"
-  dark-pos: "#91c49e"
-  dark-neg: "#ef9c83"
-  dark-pos-wash: "#243c2b"
-  dark-neg-wash: "#3c2923"
-  dark-focus: "#b6d5a8"
-  dark-error-ink: "#ef9c83"
+  paper: "#faf7f0"
+  paper-raised: "#fffdf7"
+  paper-sunk: "#f0e9de"
+  ink: "#30252a"
+  ink-2: "#57494e"
+  muted: "#6d6065"
+  line: "#ded3cf"
+  line-strong: "#928087"
+  accent: "#7a304b"
+  accent-hover: "#5e2039"
+  rail: "#331c2a"
+  rail-ink: "#fff3dc"
+  rail-muted: "#d9bfcc"
+  rail-active: "#593247"
+  rail-current: "#eec36d"
+  rail-current-ink: "#392332"
+  record-label: "#eec36d"
+  selection: "#f3e4ea"
+  sticker: "#f4dfa5"
+  sticker-ink: "#634514"
+  button-ink: "#fffdf7"
+  pos: "#27715e"
+  neg: "#ac4149"
+  pos-wash: "#e5f0eb"
+  neg-wash: "#fae9e8"
+  focus: "#a64b69"
+  error-ink: "#a13240"
+  dark-paper: "#19151a"
+  dark-paper-raised: "#231c23"
+  dark-paper-sunk: "#2d242b"
+  dark-ink: "#f6eee6"
+  dark-ink-2: "#dbccd2"
+  dark-muted: "#baa7b1"
+  dark-line: "#493840"
+  dark-line-strong: "#8b727f"
+  dark-accent: "#f3b4ca"
+  dark-accent-hover: "#ffd2e0"
+  dark-rail: "#21121e"
+  dark-rail-active: "#4d2c40"
+  dark-selection: "#432c3b"
+  dark-sticker: "#513f27"
+  dark-sticker-ink: "#f1cf8b"
+  dark-button-ink: "#341526"
+  dark-pos: "#8dcebb"
+  dark-neg: "#f1a195"
+  dark-pos-wash: "#253c36"
+  dark-neg-wash: "#43262b"
+  dark-focus: "#f3b4ca"
+  dark-error-ink: "#f1a195"
 typography:
   display:
     fontFamily: "Fraunces,Georgia,serif"
@@ -142,8 +147,8 @@ components:
     rounded: "{rounded.control}"
     padding: "10px 16px"
   navigation-item-current:
-    backgroundColor: "{colors.rail-active}"
-    textColor: "{colors.rail-ink}"
+    backgroundColor: "{colors.rail-current}"
+    textColor: "{colors.rail-current-ink}"
   pick-chip:
     backgroundColor: "{colors.paper-raised}"
     textColor: "{colors.ink}"
@@ -159,7 +164,7 @@ components:
     textColor: "{colors.ink}"
     padding: "14px 4px"
   artist-choice-selected:
-    backgroundColor: "{colors.pos-wash}"
+    backgroundColor: "{colors.selection}"
     textColor: "{colors.accent}"
   recommendation-row:
     textColor: "{colors.ink}"
@@ -171,6 +176,9 @@ components:
     textColor: "{colors.sticker-ink}"
     rounded: "{rounded.control}"
     padding: "10px 12px"
+  button-pressed:
+    backgroundColor: "{colors.selection}"
+    textColor: "{colors.accent}"
 ---
 
 # Design System: Sideband
@@ -179,7 +187,7 @@ components:
 
 **Creative North Star: "The independent listening journal"**
 
-Sideband pairs a deep forest navigation rail with a warm, light work surface. Fraunces gives music names and page titles an editorial voice; DM Sans keeps controls, explanations, and dense data direct. Dark mode preserves the same hierarchy for evening listening.
+Sideband takes its colors from record sleeves and independent music publishing: an ivory work surface, a deep aubergine navigation rail, wine-colored actions, and amber labels. Fraunces gives music names and page titles an editorial voice; DM Sans keeps controls, explanations, and dense data direct. Dark mode uses aubergine surfaces and pale rose accents while retaining the amber wayfinding.
 
 Music names, familiar connections, and listening actions establish the identity. Thin dividers and tonal areas organize the workspace; photographic artist results appear only when provided by the lookup service. The interface does not invent album artwork. Native controls and compact disclosures keep the product approachable without hiding its evidence.
 
@@ -187,40 +195,46 @@ This document records the implemented system in `musicfinder/web/style.css`, `mu
 
 **Key Characteristics:**
 
-- A persistent forest rail, with all six destinations retained on mobile.
+- An aubergine rail with amber current-state labels, retaining all six destinations on mobile.
 - Editorial music typography paired with plain, compact controls.
-- Warm tonal surfaces, thin dividers, and restrained floating shadows.
+- Record-sleeve ivory surfaces, wine ink, thin dividers, and restrained floating shadows.
 - Readable light and dark themes with visible keyboard focus.
 - Supporting evidence revealed through native disclosures.
 
 ## Colors
 
-Forest greens and warm paper neutrals create a quiet listening workspace. The palette is shared across the six routes; evidence and feedback introduce a restrained clay negative tone.
+Ivory, wine, aubergine, and amber connect Sideband to record sleeves, printed liner notes, and record labels. Their roles support a listening journal: paper holds the music, wine identifies actions, and amber marks a destination or compact piece of information. This identity is distinct from Milo's chalk, carbon, and burnt-orange training palette.
 
 ### Primary
 
-- **Forest accent** (`accent`, `accent-hover`): primary actions, text links, selection, range controls, and progress. The CSS `--button` variable aliases `--accent`.
-- **Forest rail** (`rail`, `rail-active`, `rail-ink`, `rail-muted`): the permanent navigation surface, active destination, brand, and supporting navigation text.
-- **Sage percentile** (`sticker`, `sticker-ink`): the candidate-percentile badge. Its visual weight is lower than the artist name.
-- **Focus** (`focus`): the keyboard outline on work surfaces; the rail uses `rail-ink` for focus contrast.
+- **Wine accent** (`accent`, `accent-hover`): primary actions, text links, range controls, progress, and taste bars. The CSS `--button` variable aliases `--accent`. The dark theme uses pale rose for this same role.
+- **Aubergine rail** (`rail`, `rail-active`, `rail-ink`, `rail-muted`): the persistent navigation surface, its wine hover state, and readable foregrounds.
+- **Rose selection** (`selection`): pressed controls, selected artist choices, and the import drop-area hover. It is separate from the positive-feedback wash in both themes.
+- **Rose focus** (`focus`): the keyboard outline on work surfaces; the rail uses `rail-ink` for focus contrast.
 
 ### Secondary
 
-- **Positive evidence** (`pos`, `pos-wash`): supporting meter segments, taste bars, selected buttons, and liked rows.
-- **Negative evidence** (`neg`, `neg-wash`, `error-ink`): opposing meter segments, disliked rows and chips, and error text. The wash is a state surface, not a decorative accent.
+- **Amber current destination** (`rail-current`, `rail-current-ink`): a warm label with dark type that distinguishes the active destination from hover.
+- **Amber record label** (`record-label`): the record-groove wordmark icon. It shares the current-destination hue while keeping a distinct semantic token.
+- **Amber percentile** (`sticker`, `sticker-ink`): the candidate-percentile badge. Its visual weight is lower than the artist name; dark mode uses a muted amber surface with light amber type.
+
+### Tertiary
+
+- **Positive evidence** (`pos`, `pos-wash`): supporting meter segments and liked rows. Green is reserved for these semantic states.
+- **Negative evidence** (`neg`, `neg-wash`, `error-ink`): opposing meter segments, disliked rows and chips, and error text.
 
 ### Neutral
 
-- **Warm paper** (`paper`, `paper-raised`, `paper-sunk`): the page, editable/floating surfaces, and recessed groups such as the starting point and tuning controls.
-- **Forest ink** (`ink`, `ink-2`, `muted`): primary text, explanations, and secondary metadata.
+- **Record-sleeve ivory** (`paper`, `paper-raised`, `paper-sunk`): the page, editable/floating surfaces, and recessed groups such as the starting point and tuning controls. Dark mode translates these layers into aubergine neutrals.
+- **Wine ink** (`ink`, `ink-2`, `muted`): primary text, explanations, and secondary metadata.
 - **Dividers and control edges** (`line`, `line-strong`): quiet row boundaries and stronger field/button outlines.
 - **Primary-action text** (`button-ink`): the text paired with the accent fill.
 
 ### Theme behavior
 
-The System option follows `prefers-color-scheme`; Light and Dark set `data-theme` on the root and persist under `mf.theme`. The dark-prefixed frontmatter entries record the actual overrides. Rail foregrounds (`rail-ink`, `rail-muted`) remain shared across themes. Use the semantic variables in components instead of copying a light value into a dark surface.
+The System option follows `prefers-color-scheme`; Light and Dark set `data-theme` on the root and persist under `mf.theme`. The dark-prefixed frontmatter entries record the actual overrides, including `dark-selection`. Rail foregrounds (`rail-ink`, `rail-muted`), the amber current destination (`rail-current`, `rail-current-ink`), and `record-label` remain shared across themes. Use the semantic variables in components instead of copying a light value into a dark surface.
 
-**The Signal Color Rule.** Use positive and negative colors for evidence, selection, and feedback states; keep ordinary navigation and primary actions in the accent family.
+**The Signal Color Rule.** Reserve green for positive evidence and liked feedback. Use wine and rose for selections, actions, and taste data; use amber for current navigation, the record mark, and percentile labels.
 
 ## Typography
 
@@ -265,7 +279,7 @@ On small Setup screens, the discovery action is fixed 12px from both sides and t
 
 ## Elevation & Depth
 
-Most depth comes from paper tones and borders. Recommendation rows, artist choices, accuracy tables, and summary metrics are flat. Starting-point and tuning groups use the recessed tone without shadows. The shared `--shadow` is `0 8px 28px #142c241c` in light mode and `0 8px 28px #0005` in dark mode; it is used on tooltips, toasts, and the mobile discovery action. Those values live in the sidecar's shadow extension because the frontmatter schema does not accept shadow tokens.
+Most depth comes from paper tones and borders. Recommendation rows, artist choices, accuracy tables, and summary metrics are flat. Starting-point and tuning groups use the recessed tone without shadows. The shared `--shadow` is `0 8px 28px #3014211c` in light mode and `0 8px 28px #0005` in dark mode; it is used on tooltips, toasts, and the mobile discovery action. Those values live in the sidecar's shadow extension because the frontmatter schema does not accept shadow tokens.
 
 Buttons transition background and border colors over 160ms. Recommendation feedback backgrounds and progress widths transition over 200ms. Both use `cubic-bezier(.16,1,.3,1)`. The loading indicator breathes over 1.5s with `ease-in-out`. Reduced-motion mode disables animations, transitions, and smooth scrolling; tag exploration also checks that preference before scrolling.
 
@@ -279,7 +293,7 @@ Controls and navigation use the gently curved `control` radius; recessed groups,
 
 ### Buttons
 
-The primary action has an accent fill, contrasting action text, and the `button-primary` role. Secondary buttons use a transparent surface and strong outline; quiet buttons keep a transparent border and muted text. Default controls are at least 44px high. Hover uses the recessed surface and ink outline for secondary controls, and the accent hover fill for primary controls. Disabled buttons use .5 opacity and a not-allowed cursor. Pressed buttons combine a positive wash, positive outline, and `aria-pressed`.
+The primary action has an accent fill, contrasting action text, and the `button-primary` role. Secondary buttons use a transparent surface and strong outline; quiet buttons keep a transparent border and muted text. Default controls are at least 44px high. Hover uses the recessed surface and ink outline for secondary controls, and the accent hover fill for primary controls. Disabled buttons use .5 opacity and a not-allowed cursor. Pressed buttons combine the rose `selection` wash, accent text and outline, and `aria-pressed`.
 
 Keyboard focus is a 3px outline with a 4px offset and 4px radius. In the rail it switches to the rail's light foreground. Native focus, hover, disabled, and selected semantics are retained.
 
@@ -289,17 +303,17 @@ Text fields, search, selects, and textareas use a raised surface, strong outline
 
 ### Navigation
 
-The forest rail contains the record-groove wordmark and six labeled SVG destinations. Desktop links are at least 46px high, with 19px icons. Hover and current states share the rail-active surface and rail-ink text; the current destination also has weight 600 and `aria-current="page"`. The header preserves all six labeled links at smaller widths. A keyboard skip link moves focus to the main region, and route changes update the document title and current destination.
+The aubergine rail contains an amber record-groove mark and six labeled SVG destinations. Desktop links are at least 46px high, with 19px icons. Hover uses the wine `rail-active` surface and light `rail-ink` text. The current destination uses amber `rail-current` with dark `rail-current-ink`, weight 600, and `aria-current="page"`. The header preserves all six labeled links at smaller widths. A keyboard skip link moves focus to the main region, and route changes update the document title and current destination.
 
 ### Artist choices, chips, and starting point
 
-Artist choices are text-first, divider-separated buttons, with a name and Pick/Picked marker. A selection changes the background and label, updates `aria-pressed`, and adds a check icon. They are at least 93px high on desktop and 86px on mobile. Style filters sit inside a native Browse by style disclosure; the active style uses ink over paper.
+Artist choices are text-first, divider-separated buttons, with a name and Pick/Picked marker. A selection applies the rose `selection` wash and wine accent text, changes the label, updates `aria-pressed`, and adds a check icon. They are at least 93px high on desktop and 86px on mobile. Style filters sit inside a native Browse by style disclosure; the active style uses ink over paper.
 
 Saved picks appear as removable pills in the starting-point area. Loved picks use the raised surface; disliked picks use the negative wash and strike-through. The chip area wraps and scrolls vertically after 300px. The starting point shows selection count, save status, and the state-dependent discovery action; its sticky desktop and fixed mobile behaviors are defined in Layout.
 
 ### Recommendation rows and progressive evidence
 
-Music names and the “Because of” connection lead each row. A compact sage badge is explicitly labeled percentile. Preview, external music, and feedback actions wrap below. A rating leaves the row in place, applies the corresponding wash, and exposes a saved message and Undo. Refreshed results apply the changed taste.
+Music names and the “Because of” connection lead each row. A compact amber badge is explicitly labeled percentile. Preview, external music, and feedback actions wrap below. A rating leaves the row in place, applies the corresponding wash, and exposes a saved message and Undo. Refreshed results apply the changed taste.
 
 The native “Why this match” disclosure contains the supporting/opposing signal meter, an ink net-score mark, a textual legend, and a table of signed effects. The table gives the evidence without depending on color or pointer tooltips. Provisional like estimates and simulated truth, when present in the data, are separately labeled. Model explanations and tuning use their own disclosures so they do not compete with the list.
 
@@ -309,13 +323,14 @@ Song names use compact DM Sans hierarchy with the artist beneath. The action gro
 
 ### Data, feedback, and recovery
 
-Accuracy charts use subdued grid lines, tabular labels, and clear foreground marks. Tables sit inside horizontal scrolling containers. Empty and error states use a recessed area with readable explanation and a concrete next action where available. Loading has a text status and a small progress treatment. Service, job, save, rating, and toast messages use status semantics; synthetic demo data has a visible banner. Import, backup, and data management stay in native Setup disclosures.
+Taste bars use the wine accent; positive evidence remains green in recommendation meters. Accuracy charts use subdued grid lines, tabular labels, and clear foreground marks. Tables sit inside horizontal scrolling containers. Empty and error states use a recessed area with readable explanation and a concrete next action where available. Loading has a text status and a small progress treatment. Service, job, save, rating, and toast messages use status semantics; synthetic demo data has a visible banner. Import, backup, and data management stay in native Setup disclosures.
 
 ## Do's and Don'ts
 
 ### Do:
 
 - Do use the existing semantic CSS variables so theme changes apply to every component.
+- Do keep green limited to positive evidence and liked feedback; use the wine accent for taste bars and the rose wash for selections.
 - Do keep artist names and familiar connections prominent, with supporting model detail in disclosures.
 - Do retain visible focus, native controls, textual state labels, and reduced-motion behavior.
 - Do keep feedback in its existing row with a saved message and Undo until the listener refreshes.
@@ -324,6 +339,7 @@ Accuracy charts use subdued grid lines, tabular labels, and clear foreground mar
 
 ### Don't:
 
+- Don't substitute a generic green brand palette for Sideband's record-sleeve ivory, wine, aubergine, and amber identity.
 - Don't add fabricated artwork, testimonials, listening counts, or accuracy claims.
 - Don't turn ordinary recommendation rows into stacked raised cards.
 - Don't use color alone to communicate selected artists, ratings, errors, or signal direction.
