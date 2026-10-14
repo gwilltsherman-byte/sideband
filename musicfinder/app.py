@@ -633,7 +633,7 @@ class MusicFinder:
             self._pool_cache = None
             self._version += 1
         kg = self._current_kg()
-        if kg is not None and self.lookup_available and verdict in ("like", "dislike"):
+        if not track.strip() and kg is not None and self.lookup_available and verdict in ("like", "dislike"):
             try:  # one lookup: makes the newly liked/disliked artist count in the very next scoring
                 with self._lock:
                     yield from expand_steps(kg, self.knowledge, [artist], 1)

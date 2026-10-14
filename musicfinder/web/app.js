@@ -1559,16 +1559,18 @@ async function viewSetup() {
   drop.tabIndex = 0;
   $("#clear-data").addEventListener("click", async () => {
     if (!confirm("Delete your picked artists, imported listening data and learned interest from previews and music links? (Your Spotify account is not affected.)")) return;
-    await api("/api/clear", { method: "POST", body: { what: "data" } });
     previewSession = null;
+    playbackSeq += 1;
+    await api("/api/clear", { method: "POST", body: { what: "data" } });
     store("mf.quickDraft", "");
     toast("Picks, listening data and learned interest deleted.");
     route();
   });
   $("#clear-fb").addEventListener("click", async () => {
     if (!confirm("Delete all your song and artist ratings, plus learned interest from previews and music links?")) return;
-    await api("/api/clear", { method: "POST", body: { what: "feedback" } });
     previewSession = null;
+    playbackSeq += 1;
+    await api("/api/clear", { method: "POST", body: { what: "feedback" } });
     feedbackChoices.clear();
     toast("Ratings and learned interest deleted.");
     await refreshState();

@@ -257,3 +257,35 @@ def test_new_song_like_overrides_old_imported_hide_and_undo_restores_hide():
     assert not hidden_only.positive_seeds()
     artist_hidden = build_profile([], [LibraryItem("picked_dislike", "Loved")], feedback=[vote("Loved", "Hidden", "like")])
     assert not song_seeds(artist_hidden, 10)  # a whole-artist decision still takes priority
+
+
+@pytest.mark.parametrize("verdict", ["like", "dislike", "known", "clear"])
+def test_song_rating_finishes_locally_without_artist_graph_lookups(tmp_path, verdict):
+    class NoNetwork:
+        def neighbors(self, *args, **kwargs):
+            pytest.fail("A song verdict must save without whole-artist graph lookups")
+
+    app = MusicFinder(Store(tmp_path / "local-rating.sqlite"), knowledge=NoNetwork())
+    app._kg = KnowledgeGraph()
+    app._kg_loaded = True
+    assert app.lookup_available
+    pending = app.add_feedback_steps("Fiona Apple", verdict, "Criminal")
+    with pytest.raises(StopIteration) as finished:
+        next(pending)
+    stats = finished.value.value
+    assert stats["song_overall"]["rated"] == (verdict in ("like", "dislike"))
+    assert app.store.feedback()[0].track == "Criminal"
+    assert app.feedback_summary()["saved_items"] or verdict == "clear"
+
+
+def test_artist_only_rating_keeps_artist_graph_expansion(tmp_path):
+    from musicfinder.steps import Need
+
+    app = MusicFinder(Store(tmp_path / "artist-rating.sqlite"), knowledge=object())
+    app._kg = KnowledgeGraph()
+    app._kg_loaded = True
+    pending = app.add_feedback_steps("Fiona Apple", "like", "  ")
+    step = next(pending)
+    assert isinstance(step, Need)
+    assert app.store.feedback()[0].track == ""
+    pending.close()
