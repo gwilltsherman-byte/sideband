@@ -11,6 +11,11 @@ reject every song by its artist. Distinct song ratings also contribute bounded
 evidence about that artist; an explicit artist preference carries more weight.
 **Your taste** keeps saved ratings available so you can change your mind later.
 
+**Play preview** appears after a matching audio clip is found. Songs on screen
+are checked automatically; the rest are checked as you scroll. When a clip is
+missing, Sideband shows a plain status beside **Open in Spotify**. A failed
+lookup offers **Retry check**, and failed audio offers **Reload preview**.
+
 Sideband also learns weaker interest signals from listening to previews and
 opening music links. A preview must actually play for at least ten seconds;
 seeking, buffering and failed playback do not count. Repeated signals are

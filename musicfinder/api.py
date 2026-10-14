@@ -72,7 +72,8 @@ def dispatch_steps(app: MusicFinder, method: str, path: str, query: dict[str, li
             if path == "/api/artist/tracks":
                 return 200, {"items": (yield from app.artist_tracks_steps(_q(query, "name"), _int(query, "n", 5, 1, 20)))}
             if path == "/api/preview":
-                return 200, app.preview(_q(query, "artist"), _q(query, "track")) or {}
+                return 200, (yield from app.preview_steps(_q(query, "artist"), _q(query, "track"),
+                                                         _q(query, "fresh").casefold() in ("1", "true"))) or {}
             if path == "/api/feedback":
                 return 200, app.feedback_summary()
             if path == "/api/evaluation":

@@ -93,11 +93,17 @@ class Task:
         """Requests to fetch now for the current step (each offered once per step)."""
         if self.need is None:
             return []
-        planner = getattr(self._knowledge(), "plan", None)
-        if planner is None:  # e.g. the demo's simulated sources: nothing to fetch
-            return []
+        knowledge = self._knowledge()
+        if self.need.requests is not None:
+            http = getattr(knowledge, "http", None)
+            requests = [r for r in self.need.requests if http is None or not http.peek(r)[0]]
+        else:
+            planner = getattr(knowledge, "plan", None)
+            if planner is None:  # e.g. the demo's simulated sources: nothing to fetch
+                return []
+            requests = planner(self.need.kind, self.need.items)
         out = []
-        for r in planner(self.need.kind, self.need.items):
+        for r in requests:
             key = r.cache_key
             if key in self._attempted:
                 continue
@@ -110,7 +116,9 @@ class Task:
         req = self._reqs.get(key)
         http = getattr(self._knowledge(), "http", None)
         if req is not None and http is not None:
-            http.ingest(req, int(status or 0), (text or "").encode("utf-8"))
+            verdict = http.ingest(req, int(status or 0), (text or "").encode("utf-8"))
+            if self.need is not None and self.need.requests is not None and verdict not in ("ok", "missing"):
+                self.need.error = f"{req.host}: lookup temporarily unavailable"
 
     def result_json(self) -> str:
         status, payload = self.result

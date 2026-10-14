@@ -277,6 +277,13 @@ class Store:
             self._db.execute("INSERT OR REPLACE INTO cache.http_cache VALUES (?,?,?)", (key, _pack(value), time.time()))
             self._commit()
 
+    def cache_forget(self, key: str) -> None:
+        """Evict one public lookup, for example an expired signed preview URL."""
+        with self._lock:
+            deleted = self._db.execute("DELETE FROM cache.http_cache WHERE key=?", (key,)).rowcount
+            if deleted:
+                self._commit()
+
     # ---- larger saved objects (the music map) ---------------------------------------------------
     def put_blob(self, key: str, value: Any) -> None:
         with self._lock:

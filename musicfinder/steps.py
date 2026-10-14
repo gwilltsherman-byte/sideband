@@ -21,6 +21,11 @@ class Need:
     kind: str  # "neighbors" | "annotate" | "top_tracks" | "similar_tracks" | "tag_artists"
     items: list = field(default_factory=list)
     label: str = ""
+    # A small lookup can describe its requests directly without changing a source-wide planner.
+    # Browser prefetch failures are reported back to the suspended operation; desktop run() leaves
+    # error unset and uses its usual synchronous HTTP transport.
+    requests: list[Any] | None = None
+    error: str | None = None
 
 
 Steps = Generator[Need, None, T]
