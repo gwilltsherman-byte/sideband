@@ -26,20 +26,43 @@ def _rate(likes: int, n: int) -> dict:
     }
 
 
-def latest_by_artist(feedback: Iterable[Feedback]) -> dict[str, Feedback]:
-    """One current verdict per artist, ordered by event time rather than import/list order."""
-    out: dict[str, Feedback] = {}
+def latest_by_item(feedback: Iterable[Feedback]) -> dict[tuple[str, str], Feedback]:
+    """One current verdict per artist or song; remasters share the canonical song key."""
+    out: dict[tuple[str, str], Feedback] = {}
     for fb in feedback:
-        key = fb.artist_key
-        if key and (key not in out or fb.ts >= out[key].ts):
+        key = fb.item_key
+        if key[0] and (key not in out or fb.ts >= out[key].ts):
             out[key] = fb
     return out
 
 
+def latest_by_artist(feedback: Iterable[Feedback]) -> dict[str, Feedback]:
+    """Current artist-only verdicts; song ratings must not calibrate artist scores."""
+    return {key[0]: fb for key, fb in latest_by_item(feedback).items() if not key[1]}
+
+
 def feedback_stats(feedback: Iterable[Feedback]) -> dict:
-    latest = [f for f in latest_by_artist(feedback).values() if f.verdict in ("like", "dislike")]
+    items = list(latest_by_item(feedback).values())
+    latest = [f for f in items if not f.track_key and f.verdict in ("like", "dislike")]
+    songs = [f for f in items if f.track_key and f.verdict in ("like", "dislike")]
     likes = sum(1 for f in latest if f.verdict == "like")
-    out = {"overall": _rate(likes, len(latest)), "by_source": {}, "by_exploration": {}}
+    out = {"overall": _rate(likes, len(latest)),
+           "song_overall": _rate(sum(f.verdict == "like" for f in songs), len(songs)),
+           "by_source": {}, "by_exploration": {}, "songs_by_kind": {}}
+    kinds: dict[str, list[int]] = {}
+    for f in songs:
+        kind = (f.context or {}).get("kind", "other")
+        kind = kind if isinstance(kind, str) else "other"
+        rec = kinds.setdefault(kind, [0, 0])
+        rec[0] += f.verdict == "like"
+        rec[1] += 1
+    out["songs_by_kind"] = {k: _rate(*v) for k, v in kinds.items()}
+    out["saved_items"] = [
+        {"artist": f.artist, "track": f.track, "artist_key": f.artist_key, "track_key": f.track_key,
+         "verdict": f.verdict, "ts": f.ts.isoformat(), "kind": (f.context or {}).get("kind"),
+         "context": f.context or {}}
+        for f in sorted(items, key=lambda f: f.ts, reverse=True) if f.verdict != "clear"
+    ]
     by_src: dict[str, list[int]] = {}
     by_exp: dict[str, list[int]] = {}
     for f in latest:

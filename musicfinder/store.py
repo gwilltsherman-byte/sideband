@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from musicfinder.models import Feedback, LibraryItem, Play, parse_ts
+from musicfinder.interactions import DAILY_CAP, MAX_EVENTS, Interaction, make_interaction
 from musicfinder.normalize import artist_key, track_key
 
 # Three files, so that saving one kind of change does not rewrite the others (this matters in the
@@ -26,6 +27,13 @@ CREATE TABLE IF NOT EXISTS main.feedback (
 );
 CREATE TABLE IF NOT EXISTS main.settings (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS main.blobs (key TEXT PRIMARY KEY, value BLOB);
+CREATE TABLE IF NOT EXISTS main.interactions (
+    event_id TEXT PRIMARY KEY, artist TEXT NOT NULL, track TEXT NOT NULL DEFAULT '',
+    kind TEXT NOT NULL, ts TEXT NOT NULL, duration_ms INTEGER NOT NULL,
+    artist_key TEXT NOT NULL, track_key TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS main.interactions_item_day
+    ON interactions (artist_key, track_key, kind, ts);
 """,
     "data": """
 CREATE TABLE IF NOT EXISTS data.plays (
@@ -180,8 +188,48 @@ class Store:
         with self._lock:
             self._db.execute("DELETE FROM data.plays")
             self._db.execute("DELETE FROM data.library")
+            self._db.execute("DELETE FROM main.interactions")
             self._commit()
             self._db.execute("VACUUM data")  # really remove the deleted rows from the file
+            self._db.execute("VACUUM main")
+
+    # ---- observed app actions (never imported plays or explicit ratings) ------------------------
+    def add_interaction(self, event: Interaction) -> bool:
+        checked = make_interaction({"event_id": event.event_id, "artist": event.artist,
+                                    "track": event.track, "kind": event.kind,
+                                    "duration_ms": event.duration_ms}, event.ts)
+        if checked is None:
+            return False
+        event = checked
+        day = event.ts.date().isoformat()  # make_interaction converts to UTC
+        with self._lock:
+            if self._db.execute("SELECT 1 FROM main.interactions WHERE event_id=?", (event.event_id,)).fetchone():
+                return False
+            count = self._db.execute(
+                "SELECT COUNT(*) FROM main.interactions WHERE artist_key=? AND track_key=? AND kind=? AND substr(ts,1,10)=?",
+                (event.artist_key, event.track_key, event.kind, day),
+            ).fetchone()[0]
+            if count >= DAILY_CAP[event.kind]:
+                return False
+            self._db.execute("INSERT INTO main.interactions VALUES (?,?,?,?,?,?,?,?)",
+                             (event.event_id, event.artist, event.track, event.kind, event.ts.isoformat(),
+                              event.duration_ms, event.artist_key, event.track_key))
+            self._db.execute("DELETE FROM main.interactions WHERE rowid NOT IN "
+                             "(SELECT rowid FROM main.interactions ORDER BY ts DESC, rowid DESC LIMIT ?)", (MAX_EVENTS,))
+            self._commit()
+            return True
+
+    def interactions(self) -> list[Interaction]:
+        with self._lock:
+            rows = self._db.execute("SELECT event_id, artist, kind, track, ts, duration_ms "
+                                    "FROM main.interactions ORDER BY ts, rowid").fetchall()
+        return [Interaction(eid, a, k, t, parse_ts(ts), ms) for eid, a, k, t, ts, ms in rows]
+
+    def clear_interactions(self) -> None:
+        with self._lock:
+            self._db.execute("DELETE FROM main.interactions")
+            self._commit()
+            self._db.execute("VACUUM main")
 
     # ---- feedback -------------------------------------------------------
     def add_feedback(self, fb: Feedback) -> None:
@@ -201,6 +249,7 @@ class Store:
     def clear_feedback(self) -> None:
         with self._lock:
             self._db.execute("DELETE FROM main.feedback")
+            self._db.execute("DELETE FROM main.interactions")
             self._commit()
             self._db.execute("VACUUM main")
 

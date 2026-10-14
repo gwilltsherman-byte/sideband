@@ -6,7 +6,11 @@ import json
 import math
 import sqlite3
 import zlib
+from collections import Counter
 from datetime import datetime, timezone
+
+from musicfinder.interactions import DAILY_CAP, MAX_EVENTS, make_interaction
+from musicfinder.models import parse_ts
 
 TABLES = {
     "feedback": ("main.feedback", 6),
@@ -14,6 +18,7 @@ TABLES = {
     "blobs": ("main.blobs", 2),
     "plays": ("data.plays", 11),
     "library": ("data.library", 5),
+    "interactions": ("main.interactions", 8),
 }
 PRIVATE_SETTINGS = {"phone_key", "lastfm_api_key"}
 MAX_BYTES = 128 * 1024 * 1024
@@ -30,7 +35,7 @@ def export_backup(app):
                 rows = [r for r in rows if r[0] not in PRIVATE_SETTINGS]
             tables[name] = [[{"bytes": base64.b64encode(v).decode("ascii")} if isinstance(v, bytes)
                              else v for v in row] for row in rows]
-        return {"app": "sideband", "version": 1,
+        return {"app": "sideband", "version": 2,
                 "saved": datetime.now(timezone.utc).isoformat(), "tables": tables}
 
 
@@ -40,14 +45,17 @@ def restore_backup(app, raw):
     if len(raw) > MAX_BYTES:
         raise ValueError("That backup is too large (maximum 128 MB).")
     data = json.loads(raw)
-    if not isinstance(data, dict) or data.get("app") != "sideband" or type(data.get("version")) is not int or data["version"] != 1:
+    if not isinstance(data, dict) or data.get("app") != "sideband" or type(data.get("version")) is not int or data["version"] not in (1, 2):
         raise ValueError("Choose a supported Sideband backup.")
     tables = data.get("tables")
-    if not isinstance(tables, dict) or set(tables) != set(TABLES):
+    expected = set(TABLES) if data["version"] == 2 else set(TABLES) - {"interactions"}
+    if not isinstance(tables, dict) or set(tables) != expected:
         raise ValueError("The backup is missing listening data or has unknown tables.")
+    if data["version"] == 1:
+        tables = {**tables, "interactions": []}
     decoded = {}
     for name, rows in tables.items():
-        if not isinstance(rows, list) or len(rows) > 1_000_000:
+        if not isinstance(rows, list) or len(rows) > (MAX_EVENTS if name == "interactions" else 1_000_000):
             raise ValueError("Invalid backup rows.")
         result = []
         for row in rows:
@@ -82,6 +90,28 @@ def restore_backup(app, raw):
                 raise ValueError("Backups cannot replace keys or credentials.")
             result.append(values)
         decoded[name] = result
+    seen_events: set[str] = set()
+    daily = Counter()
+    for row in decoded["interactions"]:
+        event_id, artist, track, kind, timestamp, duration, akey, tkey = row
+        if not isinstance(timestamp, str) or len(timestamp) > 64:
+            raise ValueError("Invalid interaction timestamp.")
+        ts = parse_ts(timestamp)
+        if ts is None:
+            raise ValueError("Invalid interaction timestamp.")
+        event = make_interaction({"event_id": event_id, "artist": artist, "track": track,
+                                  "kind": kind, "duration_ms": duration}, ts)
+        if event is None or event.duration_ms != duration or event.event_id in seen_events or (
+            event.artist_key != akey or event.track_key != tkey
+        ):
+            raise ValueError("Invalid interaction in backup.")
+        seen_events.add(event.event_id)
+        key = (event.artist_key, event.track_key, event.kind, event.ts.date())
+        daily[key] += 1
+        if daily[key] > DAILY_CAP[event.kind]:
+            raise ValueError("Too many repeated interactions in backup.")
+        row[:] = [event.event_id, event.artist, event.track, event.kind, event.ts.isoformat(),
+                  event.duration_ms, event.artist_key, event.track_key]
     with app._lock, app.store._lock:
         db = app.store._db
         try:

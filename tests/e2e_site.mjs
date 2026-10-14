@@ -63,13 +63,13 @@ check((await page.locator(".view-head p").first().innerText()).includes("you pic
 await page.screenshot({ path: `${outDir}/site-foryou-picks.png` });
 
 await page.locator(".rec").first().locator("button[data-act=like]").click();
-await page.waitForFunction(() => document.querySelector(".rec .rec-state")?.textContent.includes("liked 1"), null, { timeout: 60_000 });
+await page.waitForFunction(() => document.querySelector(".rec button[data-act=like]")?.getAttribute("aria-pressed") === "true", null, { timeout: 60_000 });
 check(true, "rating saved");
 await page.locator(".rec").first().locator("button[data-act=undo]").click();
-await page.waitForFunction(() => document.querySelector(".rec .rec-state")?.textContent.includes("liked 0"), null, { timeout: 60_000 });
+await page.waitForFunction(() => document.querySelector(".rec button[data-act=like]")?.getAttribute("aria-pressed") === "false", null, { timeout: 60_000 });
 check(await page.locator(".rec").first().locator("button[data-act=undo]").isHidden(), "rating can be undone without deleting the other ratings");
 await page.locator(".rec").first().locator("button[data-act=like]").click();
-await page.waitForFunction(() => document.querySelector(".rec .rec-state")?.textContent.includes("liked 1"), null, { timeout: 60_000 });
+await page.waitForFunction(() => document.querySelector(".rec button[data-act=like]")?.getAttribute("aria-pressed") === "true", null, { timeout: 60_000 });
 
 await page.goto(base + "/#songs");
 await page.waitForSelector(".song", { timeout: 120_000 });

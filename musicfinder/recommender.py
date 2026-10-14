@@ -38,7 +38,7 @@ FEATURE_LABELS = {
     "support": "Linked from many of your artists",
     "tag": "Matches your genre profile",
     "pop": "Popularity",
-    "neg": "Similar to artists you skip",
+    "neg": "Similar to music you dislike or skip",
     "agree": "Sources agree",
     "novelty": "Adventure setting",
 }

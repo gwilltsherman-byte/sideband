@@ -52,7 +52,7 @@ class Feedback:
     """A rating the user gave inside musicfinder."""
 
     artist: str
-    verdict: str  # "like" | "dislike" | "known"
+    verdict: str  # "like" | "dislike" | "known" | "clear"
     track: str = ""
     ts: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     context: dict = field(default_factory=dict)
@@ -60,6 +60,15 @@ class Feedback:
     @property
     def artist_key(self) -> str:
         return artist_key(self.artist)
+
+    @property
+    def track_key(self) -> str:
+        return track_key(self.track)
+
+    @property
+    def item_key(self) -> tuple[str, str]:
+        """A song verdict belongs to that song, never to every song by its artist."""
+        return self.artist_key, self.track_key
 
 
 def parse_ts(value: str) -> datetime | None:

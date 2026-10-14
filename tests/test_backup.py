@@ -32,7 +32,7 @@ class BackupTests(unittest.TestCase):
         app = MusicFinder(Store(':memory:'))
         app.set_pick('Keep this artist', 'love')
         good = export_backup(app)
-        for bad in [{}, {**good, 'version': 2}, {**good, 'app': 'foreign'}, {**good, 'tables': {}}]:
+        for bad in [{}, {**good, 'version': 3}, {**good, 'app': 'foreign'}, {**good, 'tables': {}}]:
             with self.assertRaises(ValueError): restore_backup(app, json.dumps(bad).encode())
         good['tables']['settings'].append(['phone_key', '"replacement"'])
         with self.assertRaises(ValueError): restore_backup(app, json.dumps(good).encode())

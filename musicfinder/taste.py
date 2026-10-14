@@ -21,7 +21,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from typing import Iterable
 
-from musicfinder.feedback import latest_by_artist
+from musicfinder.feedback import latest_by_item
 from musicfinder.models import Feedback, LibraryItem, Play
 from musicfinder.normalize import artist_key, track_key
 
@@ -65,6 +65,11 @@ class TrackTaste:
     uri: str | None = None
     explicit: float = 0.0
     banned: bool = False
+    feedback: str | None = None
+    feedback_ts: datetime | None = None
+    _feedback_bonus: float = field(default=0.0, repr=False)
+    _library_banned: bool = field(default=False, repr=False)
+    _library_ban_ts: datetime | None = field(default=None, repr=False)
 
     @property
     def affinity(self) -> float:
@@ -92,6 +97,11 @@ class ArtistTaste:
     satisfaction: float = 0.5
     _days: set = field(default_factory=set, repr=False)
     _feedback_bonus: float = field(default=0.0, repr=False)
+    _song_feedback_bonus: float = field(default=0.0, repr=False)
+    _song_dislike_weight: float = field(default=0.0, repr=False)
+    _library_banned: bool = field(default=False, repr=False)
+    _preference_ts: datetime | None = field(default=None, repr=False)
+    _preference_verdict: str | None = field(default=None, repr=False)
 
     @property
     def affinity(self) -> float:
@@ -125,6 +135,7 @@ class TasteProfile:
     first: datetime | None
     last: datetime | None
     formats: dict[str, int]
+    _feedback_items: dict[tuple[str, str], Feedback] = field(default_factory=dict, repr=False)
 
     # ---- seeds ----------------------------------------------------------
     def positive_seeds(self, n: int | None = None, recent: bool = False) -> dict[str, float]:
@@ -150,6 +161,8 @@ class TasteProfile:
                 out[a.key] = 3.0
             elif a.picked or a.feedback == "like":
                 continue  # the listener's explicit preference outweighs old/contextual skips
+            elif a._song_dislike_weight:
+                out[a.key] = a._song_dislike_weight  # weak transfer, never a whole-artist ban
             elif a.early_skips >= 2 and a.streams == 0:
                 out[a.key] = math.log1p(a.early_skips)
             elif a.early_skips >= 3 and a.satisfaction < 0.35:
@@ -157,10 +170,19 @@ class TasteProfile:
         return out
 
     def known_artists(self) -> set[str]:
-        return set(self.artists)
+        song_artists = {a for a, _ in self.known_tracks()}
+        return {a.key for a in self.artists.values()
+                if a.plays or a.explicit or a.picked or a.banned or a.feedback or a.key in song_artists}
 
     def known_tracks(self) -> set[tuple[str, str]]:
-        return set(self.tracks)
+        return {key for key, t in self.tracks.items()
+                if (t.streams or t.early_skips or t.last
+                    or abs(t.engagement - getattr(t, "_interaction_bonus", 0.0)) > 1e-9
+                    or t.explicit or t.banned or t.feedback)}
+
+    def blocked_artists(self) -> set[str]:
+        """Only explicit whole-artist rejection blocks all songs; weak negatives change rank."""
+        return {a.key for a in self.artists.values() if a.banned or a.feedback == "dislike"}
 
     @property
     def global_satisfaction(self) -> float:
@@ -176,7 +198,7 @@ class TasteProfile:
     def top_tracks(self, n: int = 50) -> list[TrackTaste]:
         blocked = {a.key for a in self.artists.values() if a.banned or a.feedback == "dislike"}
         return sorted((t for t in self.tracks.values()
-                       if t.affinity > 0 and not t.banned and t.artist_key not in blocked),
+                       if t.affinity > 0 and not t.banned and t.feedback != "dislike" and t.artist_key not in blocked),
                       key=lambda t: -t.affinity)[:n]
 
     def diversity(self) -> float:
@@ -256,6 +278,7 @@ def build_profile(
     params: TasteParams = TasteParams(),
     as_of: datetime | None = None,
     feedback: Iterable[Feedback] = (),
+    interactions: Iterable = (),
 ) -> TasteProfile:
     """Build a :class:`TasteProfile` from plays strictly before ``as_of`` (default: all plays).
 
@@ -328,20 +351,26 @@ def build_profile(
             "playlist_track": params.playlist_bonus,
         }
         picked: list[ArtistTaste] = []
-        disliked_picks: set[str] = set()
         for item in library:
             if cutoff is not None and item.added is not None and item.added >= cutoff:
                 continue
             a = artist(item.artist)
+            if item.kind in ("picked_artist", "picked_dislike"):
+                pref_ts = item.added or datetime.min.replace(tzinfo=timezone.utc)
+                if a._preference_ts is None or pref_ts >= a._preference_ts:
+                    a._preference_ts = pref_ts
+                    a._preference_verdict = "like" if item.kind == "picked_artist" else "dislike"
             if item.kind in ("banned_artist", "picked_dislike"):
                 a.banned = True
-                if item.kind == "picked_dislike":
-                    disliked_picks.add(a.key)
             elif item.kind == "picked_artist":
                 picked.append(a)
             elif item.kind == "banned_track":
                 if item.track:
-                    track(a, item.track, item.artist).banned = True
+                    t = track(a, item.track, item.artist)
+                    t.banned = True
+                    ts = item.added or datetime.min.replace(tzinfo=timezone.utc)
+                    if t._library_ban_ts is None or ts >= t._library_ban_ts:
+                        t._library_ban_ts = ts
             elif item.kind in bonus:
                 a.explicit += bonus[item.kind]
                 if item.kind in ("saved_track", "playlist_track") and item.track:
@@ -353,7 +382,7 @@ def build_profile(
             top = sorted((a.affinity for a in artists.values() if a.affinity > 0), reverse=True)[:50]
             pick = max(params.picked_bonus, top[len(top) // 2] if top else 0.0)
             for a in picked:
-                if not a.picked and a.key not in disliked_picks:
+                if not a.picked and a._preference_verdict == "like":
                     a.picked = True
                     a.banned = False  # picking overrides an artist hidden in Spotify long ago
                     a.explicit += max(pick, pick - a.engagement - a.explicit)
@@ -368,41 +397,93 @@ def build_profile(
         n_streams=n_streams, n_early_skips=n_skips, total_ms=total_ms,
         first=plays[0].ts if plays else None, last=plays[-1].ts if plays else None, formats=dict(formats),
     )
+    for a in artists.values():
+        a._library_banned = a.banned
+    for t in tracks.values():
+        t._library_banned = t.banned
     apply_feedback(profile, (fb for fb in feedback if cutoff is None or fb.ts < cutoff))
+    from musicfinder.interactions import apply_interactions
+    apply_interactions(profile, interactions, cutoff=cutoff)
     return profile
 
 
 def apply_feedback(profile: TasteProfile, feedback: Iterable[Feedback]) -> None:
-    """Fold in-app ratings into the profile. Later ratings of the same artist override earlier ones."""
-    latest = latest_by_artist(feedback)
+    """Recompute reversible preferences from latest item verdicts, without fabricating plays.
+
+    Explicit artist choices dominate weaker song-to-artist transfer. A song like is a strong song
+    seed; distinct song verdicts accumulate a saturating artist adjustment. One rejected song never
+    declares that every song by its artist is unwanted.
+    """
+    for key, fb in latest_by_item(feedback).items():
+        old = profile._feedback_items.get(key)
+        if old is None or fb.ts >= old.ts:
+            profile._feedback_items[key] = fb
+    latest = profile._feedback_items
     if not latest:
         return
-    # Remove the previously applied adjustment before recomputing it. Applying the same ratings to
-    # a cached profile twice must not double their influence; a clear must undo the old like bonus.
-    for key in latest:
-        a = profile.artists.get(key)
-        if a is not None:
-            a.explicit -= a._feedback_bonus
-            a.recent_engagement -= a._feedback_bonus
-            a._feedback_bonus = 0.0
-    top = sorted((max(0.0, a.affinity - a._feedback_bonus) for a in profile.artists.values()
-                  if a.affinity > 0 and not a.banned and a.feedback != "dislike"), reverse=True)[:50]
+    for a in profile.artists.values():
+        adjustment = a._feedback_bonus + a._song_feedback_bonus
+        a.explicit -= adjustment
+        a.recent_engagement -= adjustment
+        a._feedback_bonus = a._song_feedback_bonus = a._song_dislike_weight = 0.0
+        a.feedback = None
+        a.banned = a._library_banned
+    for t in profile.tracks.values():
+        t.explicit -= t._feedback_bonus
+        t._feedback_bonus = 0.0
+        t.feedback = None
+        t.feedback_ts = None
+        t.banned = t._library_banned
+    top = sorted((a.affinity for a in profile.artists.values()
+                  if a.affinity > 0 and not a.banned), reverse=True)[:50]
     like_bonus = max(3.0, top[len(top) // 2]) if top else 3.0
-    for key, fb in latest.items():
-        a = profile.artists.get(key)
-        if fb.verdict == "clear":  # rating withdrawn: back to whatever the listening history says
-            if a is not None:
-                a.feedback = None
+    song_top = sorted((t.affinity for t in profile.tracks.values() if t.affinity > 0 and not t.banned),
+                      reverse=True)[:50]
+    song_bonus = max(4.0, song_top[len(song_top) // 2]) if song_top else 4.0
+    song_votes: dict[str, list[int]] = defaultdict(lambda: [0, 0])
+    for (key, song_key), fb in latest.items():
+        if fb.verdict == "clear":
             continue
+        a = profile.artists.get(key)
         if a is None:
             a = profile.artists[key] = ArtistTaste(key, fb.artist)
-        if a.picked:
-            continue  # a pick in Setup is the listener's own, deliberate word on this artist
-        # (a "Not for me" pick sets banned, which already outweighs any earlier rating)
+        if song_key:
+            t = profile.tracks.get((key, song_key))
+            if t is None:
+                t = profile.tracks[key, song_key] = TrackTaste(key, song_key, fb.track, fb.artist)
+            t.feedback, t.feedback_ts = fb.verdict, fb.ts
+            if fb.verdict == "like":
+                if t._library_ban_ts is None or fb.ts > t._library_ban_ts:
+                    t.banned = False
+                if t.banned:
+                    continue  # a newer imported rejection also withdraws this older positive seed
+                bonus = max(song_bonus, song_bonus - t.engagement - t.explicit)
+                t.explicit += bonus
+                t._feedback_bonus = bonus
+                song_votes[key][0] += 1
+            elif fb.verdict == "dislike":
+                song_votes[key][1] += 1
+            continue
+        if (a._preference_ts is not None and a._preference_ts >= fb.ts
+                and a._preference_verdict in ("like", "dislike")):
+            continue  # a newer Setup choice supersedes an older recommendation verdict
         a.feedback = fb.verdict
         if fb.verdict == "like":
+            a.banned = False  # a new explicit like can overturn an old hidden/disliked artist
             bonus = max(like_bonus, like_bonus - a.engagement - a.explicit,
                         like_bonus - a.recent_engagement)
             a.explicit += bonus
             a.recent_engagement += bonus
             a._feedback_bonus = bonus
+    for key, (likes, dislikes) in song_votes.items():
+        a = profile.artists[key]
+        if a.feedback in ("like", "dislike") or a.picked or a.banned:
+            continue
+        # Distinct tracks supply evidence, repeated clicks on one verdict do not. Saturation keeps
+        # an album's many ratings from drowning out deliberate artist choices or a long history.
+        adjustment = 3.0 * (1 - math.exp(-0.4 * likes)) - 2.0 * (1 - math.exp(-0.5 * dislikes))
+        a.explicit += adjustment
+        a.recent_engagement += adjustment
+        a._song_feedback_bonus = adjustment
+        if dislikes > likes:
+            a._song_dislike_weight = min(1.5, 0.35 * math.sqrt(dislikes - likes))
