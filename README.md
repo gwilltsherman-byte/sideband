@@ -1,6 +1,18 @@
 # Sideband
 
-Sideband helps you find artists and songs from music you already enjoy. **Search for any artist and pick the result, or tap artists you love, then choose Find my music.** Style buttons narrow the starter choices; **Show more** brings another set, guided by your selections. No lists, account or export are required. Listening history is optional.
+**[Open Sideband](https://sideband.netlify.app/)** · [Use on Mac or iPhone](RUNNING.md#install-the-hosted-app) · [Report a problem](https://github.com/gwilltsherman-byte/sideband/issues/new)
+
+Sideband is my music discovery app. Start with artists or songs you enjoy, find new music, and rate the suggestions to help it learn your taste. Your picks, ratings and listening history stay on your device. No account is needed; finding new music requires an internet connection.
+
+<img src="docs/screenshots/overview.jpg" alt="Sideband’s artist search and favourite-selection screen" width="100%">
+
+## Start finding music
+
+1. Search for an artist you love, or pick favourites from the starter choices.
+2. Choose **Find my music** to get recommendations.
+3. Listen and mark **Like**, **Not for me** or **Already know** to refine your picks.
+
+## How your ratings work
 
 Start with ten recommendations, listen, and mark **Like**, **Not for me** or **Already know**. Ratings immediately change the taste profile; **Apply ratings** updates the visible list without moving you elsewhere. You can undo a rating, and your adventurous setting and list length survive a reload.
 
