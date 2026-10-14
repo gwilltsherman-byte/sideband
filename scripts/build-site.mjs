@@ -18,7 +18,7 @@ const web = path.join(root, "musicfinder", "web");
 // Python modules the browser never needs (local web server and command line).
 const SKIP_PY = new Set(["musicfinder/server.py", "musicfinder/cli.py", "musicfinder/__main__.py"]);
 const WEB_FILES = ["app.js", "ui-state.js", "artist-picker.js", "listening-signals.js", "preview-state.js", "browser-api.js", "worker.js", "style.css", "manifest.webmanifest",
-  "icon-180.png", "icon-192.png", "icon-512.png"];
+  "icon-180.png", "icon-192.png", "icon-512.png", "dm-sans-regular.ttf", "dm-sans-semibold.ttf", "fraunces-medium.ttf", "dm-sans-OFL.txt", "fraunces-OFL.txt"];
 const PYODIDE_FILES = ["pyodide.mjs", "pyodide.asm.mjs", "pyodide.asm.wasm", "python_stdlib.zip", "pyodide-lock.json"];
 
 async function walk(dir) {
