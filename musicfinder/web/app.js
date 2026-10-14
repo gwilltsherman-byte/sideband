@@ -897,7 +897,11 @@ function saveArtistPick(artist, verdict) {
 
 function artistPickerMarkup() {
   return `<section class="artist-starter" aria-labelledby="artist-heading">
-    <div class="artist-picker-head"><div><h2 id="artist-heading">Tap the artists you love</h2><p class="muted">Choose familiar favourites. Each tap saves your taste.</p></div><p id="artist-count" class="artist-count" role="status"></p></div>
+    <div class="artist-picker-head"><div><h2 id="artist-heading">Find artists you love</h2><p class="muted">Search for any artist, or pick favourites below.</p></div><p id="artist-count" class="artist-count" role="status"></p></div>
+    <form id="pick-form" class="picker artist-search" role="search" autocomplete="off"><label for="pick-q" class="small">Search artists</label>
+      <input id="pick-q" type="search" placeholder="Search any artist" enterkeyhint="search" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="pick-status"><button type="submit">Search</button></form>
+    <ul class="pick-results" id="pick-results"></ul>
+    <p class="small muted" id="pick-status" role="status"></p>
     <div class="artist-styles" role="group" aria-label="Browse artists by style"><button type="button" data-style="" aria-pressed="true">All styles</button>${ARTIST_STYLES.map((style) => `<button type="button" data-style="${esc(style.id)}" aria-pressed="false">${esc(style.label)}</button>`).join("")}</div>
     <div id="artist-grid" class="artist-grid" role="group" aria-label="Artists to choose"></div>
     <div class="row artist-browse"><button id="artist-more" type="button">Show more artists</button><p class="small muted" id="artist-browse-hint"></p></div>
@@ -1129,13 +1133,6 @@ async function viewSetup() {
         <p class="small" id="data-status" role="status">${state.plays ? `${fmt(state.plays)} plays imported.` : "No history imported yet."}</p>
         <div class="row"><button class="primary" id="prepare-history" ${state.plays ? "" : "hidden"}>Improve from my history</button><a href="#accuracy" ${state.plays ? "" : "hidden"} id="history-accuracy">See my accuracy</a></div>
         <p class="small muted">History enables accuracy tests against later listening. Your picked favourites already work.</p></div>
-    </div></details>
-    <details class="section"><summary>Search for another artist</summary><div class="stack">
-        <p class="small muted">Search the full catalogue, or mark artists you don’t enjoy.</p>
-        <form id="pick-form" class="picker" role="search" autocomplete="off"><label for="pick-q" class="small">Artist</label>
-          <input id="pick-q" type="search" placeholder="Start typing an artist’s name" enterkeyhint="search" autocomplete="off" autocapitalize="off" spellcheck="false"></form>
-        <ul class="pick-results" id="pick-results"></ul>
-        <p class="small muted" id="pick-status" role="status"></p>
     </div></details>
     ${BROWSER ? `<details class="section"><summary>Where your data lives</summary><div class="stack">
       <p>Your picks, listening history and ratings are saved ${WHERE}, not on a server. Other devices start empty${IOS ? ", and on an iPhone the Home Screen app and Safari each keep their own copy" : ""}. Clearing this site’s data in the browser settings deletes it.</p>

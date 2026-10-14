@@ -1,6 +1,6 @@
 # Sideband
 
-Sideband helps you find artists and songs from music you already enjoy. **Tap artists you love, then choose Find my music.** Style buttons narrow the choices; **Show more** brings another set, guided by your selections. No typing, account or export is required. Listening history is optional.
+Sideband helps you find artists and songs from music you already enjoy. **Search for any artist and pick the result, or tap artists you love, then choose Find my music.** Style buttons narrow the starter choices; **Show more** brings another set, guided by your selections. No lists, account or export are required. Listening history is optional.
 
 Start with ten recommendations, listen, and mark **Like**, **Not for me** or **Already know**. Ratings immediately change the taste profile; **Apply ratings** updates the visible list without moving you elsewhere. You can undo a rating, and your adventurous setting and list length survive a reload.
 
@@ -41,7 +41,7 @@ Predictions depend on the available listening and similarity data. Mood, context
 
 ## Getting started
 
-**Right away:** in Setup, tap artists you enjoy. Each tap saves that favourite; tap again to remove it. Choose styles to browse a smaller set, or **Show more** to see other artists. Choose **Find my music** when ready. A few favourites from different parts of your taste give the recommender more to work with, but you can start with one. Browsing a style does not save a preference.
+**Right away:** in Setup, search for any artist and choose **Love** on the matching result, or tap artists you enjoy in the starter choices. Each pick saves that favourite; tap again to remove it. Choose styles to browse a smaller set, or **Show more** to see other artists. Choose **Find my music** when ready. A few favourites from different parts of your taste give the recommender more to work with, but you can start with one. Browsing a style does not save a preference.
 
 The starter catalog works offline and covers a range of styles and eras. It helps you select familiar artists; live music services supply the similarity data used for recommendations. Selected artists stay in place while you pick, and your saved favourites survive a reload.
 
