@@ -1,6 +1,6 @@
 # Sideband
 
-Sideband helps you find artists and songs from music you already enjoy. **Start now without an export:** paste favourite artist names, paste favourite songs, or choose a playlist CSV/TSV. Review the names, choose **Use this taste**, then **Find my music**. Listening history is optional.
+Sideband helps you find artists and songs from music you already enjoy. **Tap artists you love, then choose Find my music.** Style buttons narrow the choices; **Show more** brings another set, guided by your selections. No typing, account or export is required. Listening history is optional.
 
 Start with ten recommendations, listen, and mark **Like**, **Not for me** or **Already know**. Ratings immediately change the taste profile; **Apply ratings** updates the visible list without moving you elsewhere. You can undo a rating, and your adventurous setting and list length survive a reload.
 
@@ -13,7 +13,7 @@ with cellular data or any internet connection, so your Mac can be switched off.
 2. **iPhone:** tap **Share > Add to Home Screen**, then **Add**.
    If **Open as Web App** appears, leave it on.
 3. **Mac with macOS Sonoma 14 or later:** choose **File > Add to Dock**, then **Add**.
-4. Open the new Sideband icon before entering favourites or importing history.
+4. Open the new Sideband icon before picking favourites or importing history.
 
 Your picks, ratings and listening history stay saved on that device after you
 close the app. In **Setup > Backup and restore**, save a backup before changing
@@ -41,7 +41,11 @@ Predictions depend on the available listening and similarity data. Mood, context
 
 ## Getting started
 
-**Right away:** in Setup, paste several artists you love, one per line. Or switch to songs and use one `Artist — Song` line per song. You can choose a UTF-8 TXT file or a CSV/TSV with named artist and track columns. Review the preview, choose **Use this taste**, then **Find my music**. No Spotify export, new account or API key is needed for this input. Adding the same list again does not increase its weight.
+**Right away:** in Setup, tap artists you enjoy. Each tap saves that favourite; tap again to remove it. Choose styles to browse a smaller set, or **Show more** to see other artists. Choose **Find my music** when ready. A few favourites from different parts of your taste give the recommender more to work with, but you can start with one. Browsing a style does not save a preference.
+
+The starter catalog works offline and covers a range of styles and eras. It helps you select familiar artists; live music services supply the similarity data used for recommendations. Selected artists stay in place while you pick, and your saved favourites survive a reload.
+
+**Optional lists and files:** expand the additional input section if you already have names to paste or a playlist CSV/TSV. Review the preview, choose **Use this taste**, then **Find my music**. Repeated input does not increase its weight.
 
 For a song list:
 

@@ -13,7 +13,7 @@ const context = await browser.newContext(); // one profile: the tabs share Index
 const open = async (hash = "#setup") => {
   const p = await context.newPage();
   await p.goto(base + "/" + hash);
-  await p.waitForSelector("#quick-text, .rec, .empty", { timeout: 120_000 });
+  await p.waitForSelector("#artist-grid button, .rec, .empty", { timeout: 120_000 });
   return p;
 };
 const plays = async (p) => p.evaluate(async () => (await (await import("/static/browser-api.js")).request("GET", "/api/state")).payload.plays);

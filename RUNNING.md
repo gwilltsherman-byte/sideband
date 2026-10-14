@@ -10,7 +10,7 @@ is needed.
 2. **iPhone:** tap **Share > Add to Home Screen**, then **Add**.
    If **Open as Web App** appears, leave it on.
 3. **Mac with macOS Sonoma 14 or later:** choose **File > Add to Dock**, then **Add**.
-4. Open the new Sideband icon before entering favourites or importing history.
+4. Open the new Sideband icon before picking favourites or importing history.
 
 The installed app keeps its own data, which stays saved after you close it.
 Once the first download finishes, saved data can open offline; new music
@@ -25,16 +25,19 @@ not credentials. Each device keeps its own data; it does not sync automatically.
 
 ## Get your first recommendations
 
-In Setup, start without waiting for Spotify: paste favourite artists (one per
-line), switch to favourite songs (`Artist — Song`), or choose a playlist CSV/TSV
-with named artist and track columns. Review the preview, choose **Use this
-taste**, then **Find my music**. Plain TXT files work too. A list of links alone
-does not contain the music names needed by Sideband.
+In Setup, tap artists you love, then **Find my music**. Tap a style to narrow
+the choices or **Show more** for another set. Taps save immediately; tap a
+selected artist again to remove it. There is no typing or export to wait for.
+A few artists from different parts of your taste help, and you can start with one.
 
 Your existing picks and ratings are kept, and duplicate uploads do not count
 twice. The input is saved locally as your declared favourites, not invented
-listening history. Artist/song entry works even when the music lookup service
+listening history. The artist picker works even when the music lookup service
 is disconnected; finding new recommendations still needs that service.
+
+If you already have a list or playlist file, the additional input section lets
+you paste artists, paste `Artist — Song` lines, or choose a CSV, TSV or TXT file.
+Review the preview and choose **Use this taste** to save those names.
 
 If you already have a Spotify export, add its ZIP or JSON files in the optional
 history section. **Improve from my history** then updates your map and checks
