@@ -39,8 +39,7 @@ check((await page.locator("#key, input[type=password]").count()) === 0, "no API 
 check(await page.locator("#build").isDisabled(), "nothing to build before any pick");
 
 // 1. Instant start: pick favourites by searching for them.
-// This synthetic catalog uses generated names, reached through the optional search.
-await page.getByText("Search for another artist", { exact: true }).click();
+// This synthetic catalog uses generated names, reached through the main artist search.
 for (const name of picks) {
   await page.fill("#pick-q", name.toLowerCase());
   const row = page.locator(`#pick-results li[data-name="${name.replace(/"/g, '\\"')}"]`);

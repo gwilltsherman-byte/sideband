@@ -25,7 +25,9 @@ not credentials. Each device keeps its own data; it does not sync automatically.
 
 ## Get your first recommendations
 
-In Setup, tap artists you love, then **Find my music**. Tap a style to narrow
+In Setup, search for an artist and choose **Love**, or tap artists you love,
+then **Find my music**. Search can find artists beyond the starter choices.
+Tap a style to narrow
 the choices or **Show more** for another set. Taps save immediately; tap a
 selected artist again to remove it. There is no typing or export to wait for.
 A few artists from different parts of your taste help, and you can start with one.

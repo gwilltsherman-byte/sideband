@@ -303,6 +303,10 @@ tr.highlight td { font-weight: 700; }
 /* picking favourite artists */
 .picker { display: grid; gap: var(--s1); margin: var(--s4) 0 var(--s2); max-width: 32rem; }
 .picker input { width: 100%; }
+.artist-search { max-width: none; grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
+.artist-search label { grid-column: 1 / -1; }
+.artist-search input { max-width: none; }
+.artist-search button { justify-content: center; }
 .pick-results { list-style: none; padding: 0; margin: 0 0 var(--s4); max-width: 40rem; }
 .pick-results li { padding: var(--s2) 0; border-bottom: 1px solid var(--line); }
 .pick-results li[data-name] { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: var(--s3); align-items: center; }
