@@ -590,7 +590,8 @@ function personalizationPanel() {
     taste: "Your favourites shape these picks",
     more_history: "More history can sharpen personal settings",
     prepare: state.plays ? "Get more from your listening history" : "Update your music map",
-    current: p.model_current ? "Your history is shaping these picks" : "Your history has been checked",
+    current: !state.plays ? "Your choices shape these picks"
+      : p.model_current ? "Your history is shaping these picks" : "Your history has been checked",
   }[next];
   const reason = p.reason || (state.plays
     ? "Check which settings predict your later listening best, then use a fitted model when the evidence supports it."
