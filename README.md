@@ -1,5 +1,10 @@
 # Sideband
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/brand/sideband-dark.svg">
+  <img src="docs/brand/sideband-light.svg" alt="Sideband" width="288" height="64">
+</picture>
+
 **[Open Sideband](https://sideband.netlify.app/)** · [Use on Mac or iPhone](RUNNING.md#install-the-hosted-app) · [Report a problem](https://github.com/gwilltsherman-byte/sideband/issues/new)
 
 Sideband is my music discovery app. Start with artists or songs you enjoy, find new music, and rate the suggestions to help it learn your taste. Your picks, ratings and listening history stay on your device. No account is needed; finding new music requires an internet connection.
