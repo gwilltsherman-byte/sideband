@@ -20,7 +20,8 @@ lookups need an internet connection.
 
 In **Setup > Backup and restore**, save a backup before changing devices or
 clearing app data. Restore that file in the installed app on the other device.
-The backup contains your picks, ratings, listening history, preview/link interest
+The backup contains your picks, ratings, this week's artists and the ones already
+shown, any listening history, preview/link interest
 signals and music map, but not credentials. Each device keeps its own data; it
 does not sync automatically. Older backups still restore correctly.
 
@@ -30,8 +31,9 @@ In Setup, search for an artist and choose **Love**, or tap artists you love,
 then **Find my music**. Search can find artists beyond the starter choices.
 Tap a style to narrow
 the choices or **Show more** for another set. Taps save immediately; tap a
-selected artist again to remove it. There is no typing or export to wait for.
-A few artists from different parts of your taste help, and you can start with one.
+selected artist again to remove it. There is no typing, sign-in or export to
+wait for. A few artists from different parts of your taste help, and you can
+start with one.
 
 Your existing picks and ratings are kept, and duplicate uploads do not count
 twice. The input is saved locally as your declared favourites, not invented
@@ -42,14 +44,27 @@ If you already have a list or playlist file, the additional input section lets
 you paste artists, paste `Artist — Song` lines, or choose a CSV, TSV or TXT file.
 Review the preview and choose **Use this taste** to save those names.
 
-If you already have a Spotify export, add its ZIP or JSON files in the optional
-history section. **Improve from my history** then updates your map and checks
-personal settings using real listening dates and outcomes.
+**Find my music** opens **This week**: about ten artists you haven't told
+Sideband about yet, chosen from your taste. Listen, then choose **Keep**,
+**Pass**, **Know them** or **Not now** on each one. Each choice moves the artist
+into **Sorted this week**, where **Undo** puts it back. Nothing you've already
+seen comes back, and the same ten stay for the whole week; the next ten arrive
+on Sunday. When you've sorted them all, **Deal 5 more now** adds more. The
+adventurous dial sets how many wildcards your next batch includes.
 
-You can also pick artists you like and choose **Find my music** before an export
-arrives. On For You, start with ten artists, listen, rate them, then choose
-**Apply ratings to my list**. You can undo a rating and choose 20 or 30 artists
-at a time; Sideband remembers your list size and adventurous setting.
+**More songs** lists five songs by an artist, with previews where found, and
+**Listen on** chooses which music service your listen links open. **Your
+keepers** lists the artists you kept, and **Share list** shares their names.
+
+For a longer list, choose **Browse the full ranked list** to open For you.
+Start with ten artists, listen, rate them, then choose **Apply ratings to my
+list**. You can undo a rating and choose 20 or 30 artists at a time; Sideband
+remembers your list size and adventurous setting.
+
+As an optional extra, if you already have a Spotify listening history export,
+you can add its ZIP or JSON files in Setup. **Improve from my history** then
+updates your map and checks personal settings using real listening dates and
+outcomes. Sideband works fully without it.
 
 In Songs, choose **Like** or **Dislike** on an individual song, then refresh the
 list to use your ratings. Dislike hides that song and lowers related matches;

@@ -414,9 +414,8 @@ def backtest_steps(plays: list[Play], knowledge: Knowledge, cfg: EvalConfig = Ev
                    crawl_cfg: CrawlConfig = CrawlConfig(), progress: Progress = _noop) -> Steps[dict]:
     plays = sorted(plays, key=lambda p: p.ts)
     if not plays:
-        return {"ok": False, "reason": "The accuracy test replays your listening history, so it needs your Spotify "
-                                       "export first. Until then, rating recommendations (Like / Not for me) "
-                                       "measures accuracy instead."}
+        return {"ok": False, "reason": "The replay test needs an imported listening history. Without one, "
+                                       "your Keep and Pass choices measure accuracy instead."}
     end = plays[-1].ts + timedelta(seconds=1)
     span = (end - plays[0].ts).days
     if span < cfg.min_span_days:

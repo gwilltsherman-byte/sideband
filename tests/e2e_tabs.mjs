@@ -45,7 +45,7 @@ const d = await open();
 await c.waitForSelector("#elsewhere", { timeout: 15_000 });
 await d.evaluate(async () => (await import("/static/browser-api.js")).request("POST", "/api/clear", { what: "data" }));
 await c.click("#elsewhere button");
-await c.waitForSelector("#quick-text", { timeout: 120_000 });
+await c.waitForSelector("#artist-grid button", { timeout: 120_000 }); // Setup is shown again
 await d.waitForSelector("#elsewhere", { timeout: 15_000 });
 check((await plays(c)) === 0, "taking over in the old tab picks up the deletion made in the newer tab");
 await browser.close();

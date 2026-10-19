@@ -12,21 +12,22 @@ Music listeners who want to discover artists and songs from music they already e
 
 ## Product Purpose
 
-Turn favorite artists, saved songs, optional listening history, and explicit feedback into useful, explainable discoveries. Success means a listener can choose a favorite, find unfamiliar music, understand why it appeared, listen when a matching preview exists, and refine their taste without losing their place.
+Turn the listener's own taste (favorite artists, optional pasted lists, and their Keep / Pass / Know them / Not now decisions) into useful, explainable discoveries. A listening history is an optional extra, never required. Success means a listener can choose a favorite, find unfamiliar music, understand why it appeared, listen when a matching preview exists, and refine their taste without losing their place.
 
 ## Capabilities and Constraints
 
-- Six existing hash routes: For you, Songs, Explore, Your taste, Accuracy, Setup.
-- Offline starter artist catalog; live artist search; favorites and dislikes; bulk text/playlist inputs; optional Spotify ZIP/JSON import.
+- Six navigation routes: This week (default), Songs, Explore, Your taste, Accuracy, Setup. For you remains as the full ranked list, linked from This week.
+- This week: a weekly batch of about ten unfamiliar artists (close matches plus wildcards set by the adventurous dial) with Keep, Pass, Know them and Not now, undo, a Sorted this week list, 5 more, Your keepers with Share list, More songs per artist, and a Listen on choice of music service. Seen artists do not come back; an unanswered artist returns at most once.
+- Offline starter artist catalog; live artist search; favorites and dislikes; bulk text/playlist inputs; optional Spotify ZIP/JSON listening-history import in Setup.
 - Artist and song recommendations, adjustable exploration, feedback and undo, saved ratings, and three distinct song sources.
 - Previews appear only after verified matching clips are found; missing, lookup failure, audio failure, retry, and playback are separate states.
-- Accuracy results are grounded in ratings and observed history. A candidate percentile is not a like probability. Synthetic demo data must be visibly labeled.
+- Accuracy results are grounded in Keep / Pass choices and ratings, plus observed history when one is imported. A candidate percentile is not a like probability. Synthetic demo data must be visibly labeled.
 - Plain JavaScript and CSS frontend, Python recommendation engine, browser Pyodide worker or local Python server. Preserve API contracts, data storage, service worker, hosting, routes, and integrations.
 - Device-local storage; no automatic cross-device sync. Backups and restore remain available. Music lookup sends artist/song names to the existing services.
 
 ## Operating Context
 
-Installed iPhone/Mac web app or browser, desktop and mobile, light and dark environments. No account or Spotify export required to start. Initial music-map creation can take several minutes. Offline access supports saved input; new discovery depends on lookup connectivity.
+Installed iPhone/Mac web app or browser, desktop and mobile, light and dark environments. No account, sign-in or Spotify export is required at any point. Initial music-map creation can take several minutes. Offline access supports saved input; new discovery depends on lookup connectivity.
 
 ## Brand Commitments
 
