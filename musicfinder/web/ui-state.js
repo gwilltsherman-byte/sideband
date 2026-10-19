@@ -32,6 +32,39 @@ export function quickInputKind(kind, filename = "") {
   return filename ? "auto" : kind;
 }
 
+// The local calendar date of the most recent Sunday (today, on a Sunday), as YYYY-MM-DD.
+// Built from date parts, so daylight-saving changes cannot shift the day.
+const isoDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+export function weekStart(date = new Date()) {
+  return isoDay(new Date(date.getFullYear(), date.getMonth(), date.getDate() - date.getDay()));
+}
+
+export function addDaysISO(iso, days) {
+  const [y, m, d] = String(iso).split("-").map(Number);
+  return isoDay(new Date(y, m - 1, d + days));
+}
+
+export const LISTEN_SERVICES = { spotify: "Spotify", apple: "Apple Music", youtube: "YouTube Music", deezer: "Deezer", bandcamp: "Bandcamp" };
+
+export function listenChoice(value) {
+  return typeof value === "string" && Object.hasOwn(LISTEN_SERVICES, value) ? value : "spotify";
+}
+
+export function listenUrl(service, artist, title = "") {
+  const q = encodeURIComponent(title ? `${title} ${artist}` : artist);
+  return {
+    spotify: `https://open.spotify.com/search/${q}`,
+    apple: `https://music.apple.com/search?term=${q}`,
+    youtube: `https://music.youtube.com/search?q=${q}`,
+    deezer: `https://www.deezer.com/search/${q}`,
+    bandcamp: `https://bandcamp.com/search?q=${q}`,
+  }[listenChoice(service)];
+}
+
+export function stackStatusLabel(status) {
+  return { kept: "Kept", passed: "Passed", known: "Already knew", snoozed: "Not now" }[status] || "";
+}
+
 export function latestRequest() {
   let sequence = 0;
   return {
