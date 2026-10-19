@@ -9,7 +9,7 @@ const relayOnly = process.argv.includes('--relay-only');
 const types = {'.html':'text/html; charset=utf-8','.js':'application/javascript; charset=utf-8',
   '.mjs':'application/javascript; charset=utf-8','.css':'text/css; charset=utf-8',
   '.json':'application/json','.webmanifest':'application/manifest+json','.wasm':'application/wasm',
-  '.png':'image/png','.ttf':'font/ttf','.woff2':'font/woff2','.zip':'application/zip','.py':'text/plain; charset=utf-8'};
+  '.png':'image/png','.svg':'image/svg+xml','.ttf':'font/ttf','.woff2':'font/woff2','.zip':'application/zip','.py':'text/plain; charset=utf-8'};
 
 export function createServer() {
   return http.createServer(async (req,res) => {

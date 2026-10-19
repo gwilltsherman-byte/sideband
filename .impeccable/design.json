@@ -882,7 +882,7 @@
     "rules": [
       {
         "name": "The Signal Color Rule",
-        "body": "Reserve green for positive evidence and liked feedback. Use wine and rose for selections, actions, and taste data; use amber for current navigation, the record mark, and percentile labels.",
+        "body": "Reserve green for positive evidence and liked feedback. Use wine and rose for selections, actions, and taste data; use amber for current navigation, the Sideband mark, and percentile labels.",
         "section": "colors"
       },
       {

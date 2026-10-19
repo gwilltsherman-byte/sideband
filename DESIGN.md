@@ -215,7 +215,7 @@ Ivory, wine, aubergine, and amber connect Sideband to record sleeves, printed li
 ### Secondary
 
 - **Amber current destination** (`rail-current`, `rail-current-ink`): a warm label with dark type that distinguishes the active destination from hover.
-- **Amber record label** (`record-label`): the record-groove wordmark icon. It shares the current-destination hue while keeping a distinct semantic token.
+- **Amber record label** (`record-label`): the offset-band S emblem. It shares the current-destination hue while keeping a distinct semantic token.
 - **Amber percentile** (`sticker`, `sticker-ink`): the candidate-percentile badge. Its visual weight is lower than the artist name; dark mode uses a muted amber surface with light amber type.
 
 ### Tertiary
@@ -234,7 +234,7 @@ Ivory, wine, aubergine, and amber connect Sideband to record sleeves, printed li
 
 The System option follows `prefers-color-scheme`; Light and Dark set `data-theme` on the root and persist under `mf.theme`. The dark-prefixed frontmatter entries record the actual overrides, including `dark-selection`. Rail foregrounds (`rail-ink`, `rail-muted`), the amber current destination (`rail-current`, `rail-current-ink`), and `record-label` remain shared across themes. Use the semantic variables in components instead of copying a light value into a dark surface.
 
-**The Signal Color Rule.** Reserve green for positive evidence and liked feedback. Use wine and rose for selections, actions, and taste data; use amber for current navigation, the record mark, and percentile labels.
+**The Signal Color Rule.** Reserve green for positive evidence and liked feedback. Use wine and rose for selections, actions, and taste data; use amber for current navigation, the Sideband mark, and percentile labels.
 
 ## Typography
 
@@ -303,7 +303,7 @@ Text fields, search, selects, and textareas use a raised surface, strong outline
 
 ### Navigation
 
-The aubergine rail contains an amber record-groove mark and six labeled SVG destinations. Desktop links are at least 46px high, with 19px icons. Hover uses the wine `rail-active` surface and light `rail-ink` text. The current destination uses amber `rail-current` with dark `rail-current-ink`, weight 600, and `aria-current="page"`. The header preserves all six labeled links at smaller widths. A keyboard skip link moves focus to the main region, and route changes update the document title and current destination.
+The aubergine rail contains an amber offset-band S mark and six labeled SVG destinations. Desktop links are at least 46px high, with 19px icons. Hover uses the wine `rail-active` surface and light `rail-ink` text. The current destination uses amber `rail-current` with dark `rail-current-ink`, weight 600, and `aria-current="page"`. The header preserves all six labeled links at smaller widths. A keyboard skip link moves focus to the main region, and route changes update the document title and current destination.
 
 ### Artist choices, chips, and starting point
 
@@ -346,3 +346,17 @@ Taste bars use the wine accent; positive evidence remains green in recommendatio
 - Don't replace native selects, ranges, radio buttons, or disclosure semantics with decorative imitations.
 - Don't introduce external font requests; use the local font files and retain their licenses.
 - Don't change a candidate percentile into a like probability or present unavailable previews as playable.
+
+
+## Sideband logo
+
+The logo joins two offset, opposing bands into an S. The open curves and diagonal terminals suggest adjacent paths through music, grounded in the product’s promise: follow familiar artists toward unfamiliar discoveries. It belongs to the existing record-sleeve and liner-note identity; it does not introduce a new interface palette or navigation metaphor.
+
+- **Master geometry:** `musicfinder/web/brand-mark.svg`, a 64-unit square. The two bands are one compound path to avoid hairline raster seams. Preserve the curves, diagonal cuts, and rotational symmetry; do not add record rings, equalizer bars, shadows, or animation.
+- **Color:** amber `#eec36d` on aubergine `#331c2a`; wine `#7a304b` on ivory `#faf7f0`. The app header uses amber in both themes. The mark also works in one solid ink. Amber is not intended as a mark on ivory.
+- **Wordmark:** retain the capitalized “Sideband,” Fraunces Medium 500, with -0.03em tracking. The live header uses selectable text beside a decorative image, within one “Sideband home” link. Outlined light/dark SVG lockups in `docs/brand/` require no font installation; the source font and its OFL license are in `musicfinder/web/`.
+- **Sizing and space:** the header mark has a 32px square box (24px visible ink); use at least a 16px box for the isolated mark. Keep at least 8/64 of the box clear around it. The header pairs it with a 10px gap and provides a 44px-high home target. Do not stretch the geometry or reduce the internal counters.
+- **App icons:** 180, 192, and 512px PNGs derive from `docs/brand/app-icon.svg`. Their opaque aubergine ground fills the image, while all amber ink remains inside the central 80%-diameter safe circle. Let the operating system apply its own corner mask. The favicon has a separate, enlarged optical placement for small browser tabs.
+- **Interaction:** the logo returns to For you using the existing route; no special motion. Hover changes the wordmark to amber, and keyboard focus uses the rail’s ivory outline. All six destination icons retain their existing meaning; the record icon for For you is not the brand mark.
+
+The logo refresh is deliberately scoped to recognition and consistency. Product workflows, saved data, integrations, and factual copy are unchanged. Verification is recorded in `docs/brand/README.md`.
