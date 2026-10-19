@@ -76,6 +76,8 @@ def dispatch_steps(app: MusicFinder, method: str, path: str, query: dict[str, li
                                                          _q(query, "fresh").casefold() in ("1", "true"))) or {}
             if path == "/api/feedback":
                 return 200, app.feedback_summary()
+            if path == "/api/kept":
+                return 200, app.kept()
             if path == "/api/evaluation":
                 return 200, app.evaluation() or {}
             if path == "/api/search/artists":
@@ -113,8 +115,14 @@ def dispatch_steps(app: MusicFinder, method: str, path: str, query: dict[str, li
                 with app._lock:
                     accepted = event is not None and app.store.add_interaction(event)
                     if accepted:
-                        app._invalidate()
+                        app._taste_changed()
                 return 200, {"accepted": accepted}
+            if path == "/api/stack":
+                return 200, app.stack(data.get("week"), data.get("exploration", 0.0))
+            if path == "/api/stack/more":
+                return 200, app.stack_more(data.get("week"), data.get("exploration", 0.0), data.get("n", 5))
+            if path == "/api/stack/snooze":
+                return 200, app.stack_snooze(str(data.get("artist", "")), data.get("on"))
             if path == "/api/picks":
                 return 200, app.set_pick(str(data.get("artist", "")), str(data.get("verdict", "")))
             if path == "/api/clear":

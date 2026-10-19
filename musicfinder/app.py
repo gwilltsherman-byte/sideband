@@ -3,22 +3,24 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 import random
+import re
 import threading
 import time
 import traceback
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Callable
 from urllib.parse import urlsplit
 
 from musicfinder.evaluation import EvalConfig, ModelConfig, backtest_steps
 from musicfinder.explore import genre_shares, territories
-from musicfinder.feedback import calibration, feedback_stats, latest_by_item, like_probability
+from musicfinder.feedback import calibration, feedback_stats, latest_by_artist, latest_by_item, like_probability
 from musicfinder.graph import CrawlConfig, KnowledgeGraph, annotate_steps, crawl_steps, expand_steps
 from musicfinder.ingest import ImportResult, load_paths, parse_bytes, parse_document, reconcile, parse_quick_input
-from musicfinder.models import Feedback, LibraryItem, Play
+from musicfinder.models import Feedback, LibraryItem, Play, parse_ts
 from musicfinder.normalize import artist_key, track_key
 from musicfinder.recommender import FEATURES, Candidate, ScoredPool, diversify, score_pool
 from musicfinder.sources import LiveKnowledge
@@ -40,6 +42,15 @@ BROAD_GENRES = (
 
 
 PICK_KINDS = {"love": "picked_artist", "dislike": "picked_dislike"}
+
+# "This week": a small batch of unfamiliar artists, kept in settings so backups carry it.
+STACK_SIZE = 10
+STACK_CAP = 50  # a batch never grows beyond this, however often "more" is asked for
+STACK_SNOOZE_DAYS = 28
+STACK_MAX_SHOWINGS = 2  # an artist left unanswered twice is not dealt again
+STACK_STATUSES = ("open", "kept", "passed", "known", "snoozed")
+STACK_VERDICTS = {"like": "kept", "dislike": "passed", "known": "known"}
+FRESH_MAP_DAYS = 30  # rebuild the map from scratch at least this often
 
 
 class Unavailable(Exception):
@@ -102,6 +113,7 @@ class MusicFinder:
         self._data_generation = 0  # bumped whenever the map's inputs change (picks, imports, sources)
         self._history_signature_cache: str | None = None
         self._reset_generation = 0  # deletion cancels installation of artifacts from an earlier job
+        self._sources_generation = 0  # a source change means the next map starts from scratch
 
     # ---- construction helpers -------------------------------------------------------------------
     @classmethod
@@ -156,6 +168,8 @@ class MusicFinder:
             self._knowledge = None
             self._history_signature_cache = None
             self._data_generation += 1
+            self._sources_generation += 1
+            self.store.set_setting("graph_fresh_at", None)  # other sources: don't extend the old map
             self._set_stale(True)
         return self.settings()
 
@@ -172,6 +186,13 @@ class MusicFinder:
             self._pool_cache = None
             if graph:
                 self._set_stale(True)
+
+    def _taste_changed(self) -> None:
+        """Ratings and interest signals change scoring only: keep the cached plays and library."""
+        with self._lock:
+            self._version += 1
+            self._profile = None
+            self._pool_cache = None
 
     # ---- the saved music map --------------------------------------------------------------------
     def _set_stale(self, stale: bool) -> None:
@@ -278,6 +299,11 @@ class MusicFinder:
                 self._kg = None
                 self._kg_loaded = True
                 self.store.put_blob("graph", None)
+                self.store.set_setting("graph_fresh_at", None)
+        if what in ("feedback", "data", "all"):  # the weekly batch is made of those decisions
+            with self._lock:
+                self.store.set_setting("stack", None)
+                self.store.set_setting("stack_log", None)
         self._invalidate(graph=True)
 
     def plays(self) -> list[Play]:
@@ -357,7 +383,7 @@ class MusicFinder:
         with self._lock:
             if self._profile is None:
                 if not self.has_data():
-                    raise NotReady("Pick a few artists you love (or import your Spotify data) first.")
+                    raise NotReady("Pick a few artists you love first.")
                 self._profile = build_profile(self.plays(), self.library(), self.model().taste,
                                               feedback=self.store.feedback(), interactions=self.store.interactions())
             return self._profile
@@ -401,13 +427,22 @@ class MusicFinder:
         self._require_lookup()
         reset = self._reset_generation
         generation = self._data_generation
+        sources = self._sources_generation
         retry = getattr(self.knowledge, "retry_unavailable", None)
         if retry:
             retry()
         profile = self.profile()
         if not profile.positive_seeds(1):
-            raise NotReady("Pick at least one artist you love (or import your Spotify data) first.")
-        kg = yield from crawl_steps(profile, self.knowledge, self.crawl_cfg, progress or self._progress)
+            raise NotReady("Pick at least one artist you love first.")
+        # Extend a recent map instead of crawling it again: only artists new to it are looked up.
+        # Starting from scratch now and then lets it forget artists that no longer matter.
+        started = datetime.now(timezone.utc)
+        fresh_at = parse_ts(str(self.store.get_setting("graph_fresh_at") or ""))
+        with self._lock:
+            saved = self._current_kg()
+            base = (saved.copy() if saved is not None and fresh_at is not None
+                    and timedelta(0) <= started - fresh_at < timedelta(days=FRESH_MAP_DAYS) else None)
+        kg = yield from crawl_steps(profile, self.knowledge, self.crawl_cfg, progress or self._progress, kg=base)
         if not any(kg.adj.values()):
             down = self.knowledge.status().get("unavailable") or {}
             detail = "; ".join(f"{k}: {v}" for k, v in down.items())
@@ -421,6 +456,8 @@ class MusicFinder:
                 return kg  # history was deleted while lookups ran: never republish its map
             self._kg = kg
             self._kg_loaded = True
+            if base is None and self._sources_generation == sources:
+                self.store.set_setting("graph_fresh_at", started.isoformat())
             # Picks or imports made while this ran are not in it: keep offering an update.
             self._set_stale(self._data_generation != generation)
             self._pool_cache = None
@@ -470,7 +507,8 @@ class MusicFinder:
         if not plays:
             status = "picks"
             action = "prepare" if self.has_data() and not self.graph_ready() else "listen" if self.has_data() else "import"
-            reason = "Favourite artists and songs are enough to start. Rate the recommendations to refine your taste; listening history is optional."
+            reason = ("Your favourite artists and your Keep and Pass choices are all Sideband needs. "
+                      "Listening history is an optional extra.")
         elif not self.graph_ready():
             status, action = "needs_update", "prepare"
             reason = "Update recommendations to include your latest history and favourites."
@@ -724,10 +762,7 @@ class MusicFinder:
         if not isinstance(track, str):
             raise ValueError("track must be a song title")
         self.store.add_feedback(Feedback(artist.strip(), verdict, track.strip(), datetime.now(timezone.utc), context or {}))
-        with self._lock:
-            self._profile = None
-            self._pool_cache = None
-            self._version += 1
+        self._taste_changed()
         kg = self._current_kg()
         if not track.strip() and kg is not None and self.lookup_available and verdict in ("like", "dislike"):
             try:  # one lookup: makes the newly liked/disliked artist count in the very next scoring
@@ -748,6 +783,191 @@ class MusicFinder:
             for f in sorted(latest.values(), key=lambda f: f.ts, reverse=True)[:30] if f.verdict != "clear"
         ]
         return stats
+
+    # ---- this week: a small batch of unfamiliar artists -----------------------------------------
+    @staticmethod
+    def _stack_week(week: object) -> str:
+        """The client's local week start (its most recent Sunday), as YYYY-MM-DD."""
+        if not isinstance(week, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", week):
+            raise ValueError("week must be a date like 2026-01-04")
+        try:
+            date.fromisoformat(week)
+        except ValueError as e:
+            raise ValueError("week must be a real calendar date") from e
+        return week
+
+    @staticmethod
+    def _stack_exploration(value: object) -> float:
+        if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+            raise ValueError("exploration must be a number from 0 to 1")
+        try:
+            e = float(value)
+        except ValueError as err:
+            raise ValueError("exploration must be a number from 0 to 1") from err
+        if not math.isfinite(e):
+            raise ValueError("exploration must be a number from 0 to 1")
+        return max(0.0, min(1.0, e))
+
+    @staticmethod
+    def _snoozed(entry: dict | None, now: datetime) -> bool:
+        until = parse_ts(str((entry or {}).get("snooze_until") or ""))
+        return until is not None and until > now
+
+    def _stack_status(self, key: str, verdicts: dict[str, Feedback], log: dict, now: datetime) -> str:
+        """Computed on every read from the latest verdict, so Undo and ratings elsewhere stay in step."""
+        fb = verdicts.get(key)
+        if fb is not None and fb.verdict in STACK_VERDICTS:
+            return STACK_VERDICTS[fb.verdict]
+        return "snoozed" if self._snoozed(log.get(key), now) else "open"
+
+    def _stack_score(self, verdicts: dict[str, Feedback], log: dict) -> dict:
+        shown = [k for k, e in log.items() if e.get("times", 0) >= 1]
+        decided = [verdicts[k].verdict for k in shown if k in verdicts]
+        weeks = [e["first_week"] for e in log.values() if e.get("first_week")]
+        return {"shown": len(shown), "kept": decided.count("like"), "passed": decided.count("dislike"),
+                "known": decided.count("known"), "since": min(weeks) if weeks else None}
+
+    def _require_map(self) -> None:
+        self.profile()  # NotReady without any favourites...
+        self.graph()  # ...or before the music map is built, exactly like the recommendations
+
+    def _deal(self, n: int, exploration: float, week: str, taken: set[str], log: dict, extra: bool) -> list[dict]:
+        """Up to ``n`` artists the listener has not told Sideband about, a few of them wildcards."""
+        if n <= 0:
+            return []
+        known = self.profile().known_artists()
+        kg = self.graph()
+        now = datetime.now(timezone.utc)
+
+        def eligible(c: Candidate, chosen: set[str]) -> bool:
+            entry = log.get(c.key) or {}
+            return (c.key not in known and c.key not in taken and c.key not in chosen
+                    and entry.get("times", 0) < STACK_MAX_SHOWINGS and not self._snoozed(entry, now))
+
+        wild_exploration = max(0.75, min(1.0, exploration + 0.5))
+        sides = {"close": exploration, "wildcard": wild_exploration}
+        chosen: dict[str, list[Candidate]] = {"close": [], "wildcard": []}
+
+        def take(slot: str, k: int) -> None:
+            e = sides[slot]
+            pool = self._pool(e)
+            keys = {c.key for cs in chosen.values() for c in cs}
+            rest = ScoredPool([c for c in pool.candidates if eligible(c, keys)], pool.user_tags, pool.tag_vectors)
+            lam = min(0.8, self.model().scoring(e).diversity + 0.45 * e)
+            chosen[slot] += diversify(rest, kg, k, lam)
+
+        n_wild = max(1, round(n * (0.1 + 0.4 * exploration)))
+        if n > 1:
+            n_wild = min(n_wild, n - 1)
+        take("close", n - n_wild)
+        take("wildcard", n_wild)
+        for slot in ("close", "wildcard"):  # when one side runs out, fill from the other
+            short = n - len(chosen["close"]) - len(chosen["wildcard"])
+            if short > 0:
+                take(slot, short)
+
+        # Spread the wildcards evenly through the batch rather than leaving them at the end.
+        close, wild = chosen["close"], chosen["wildcard"]
+        total = len(close) + len(wild)
+        spots = {(i + 1) * total // (len(wild) + 1) for i in range(len(wild))}
+        cards = []
+        decorated = {"close": iter(self._decorate(close, exploration, "stack")),
+                     "wildcard": iter(self._decorate(wild, wild_exploration, "stack"))}
+        for i in range(total):
+            slot = "wildcard" if i in spots else "close"
+            card = next(decorated[slot])
+            card.update(slot=slot, extra=extra, second_look=(log.get(card["key"]) or {}).get("times", 0) >= 1)
+            card["context"].update(week=week, slot=slot)
+            cards.append(card)
+        for card in cards:
+            entry = log.setdefault(card["key"], {"name": card["name"], "first_week": week, "last_week": week,
+                                                 "times": 0, "snooze_until": None})
+            entry["name"] = card["name"]
+            entry["first_week"] = entry.get("first_week") or week
+            entry["last_week"] = week
+            entry["times"] = entry.get("times", 0) + 1
+        return cards
+
+    def _current_stack(self, week: str, exploration: float) -> dict:
+        """The saved batch, unless it belongs to an earlier week: then deal a fresh one."""
+        saved = self.store.get_setting("stack")
+        if saved and str(saved.get("week", "")) >= week:
+            return saved
+        log = self.store.get_setting("stack_log") or {}
+        items = self._deal(STACK_SIZE, exploration, week, set(), log, extra=False)
+        stack = {"week": week, "dealt_at": datetime.now(timezone.utc).isoformat(), "exploration": exploration,
+                 "items": items, "exhausted": len(items) < STACK_SIZE}
+        self.store.set_setting("stack", stack)
+        self.store.set_setting("stack_log", log)
+        return stack
+
+    def _stack_payload(self, stack: dict) -> dict:
+        log = self.store.get_setting("stack_log") or {}
+        verdicts = latest_by_artist(self.store.feedback())
+        now = datetime.now(timezone.utc)
+        items = [{**c, "status": self._stack_status(c["key"], verdicts, log, now)} for c in stack["items"]]
+        counts = {"total": len(items), **{s: sum(i["status"] == s for i in items) for s in STACK_STATUSES}}
+        return {"week": stack["week"], "dealt_at": stack["dealt_at"], "exploration": stack["exploration"],
+                "items": items, "counts": counts, "exhausted": bool(stack.get("exhausted")),
+                "graph_stale": not self.graph_ready(), "score": self._stack_score(verdicts, log)}
+
+    def stack(self, week: object, exploration: object = 0.0) -> dict:
+        """This week's batch; asking again in the same week never deals a new one."""
+        week, exploration = self._stack_week(week), self._stack_exploration(exploration)
+        with self._lock:
+            self._require_map()
+            return self._stack_payload(self._current_stack(week, exploration))
+
+    def stack_more(self, week: object, exploration: object = 0.0, n: object = 5) -> dict:
+        week, exploration = self._stack_week(week), self._stack_exploration(exploration)
+        if isinstance(n, bool) or not isinstance(n, (int, str)):
+            raise ValueError("n must be a whole number")
+        try:
+            n = max(1, min(10, int(n)))
+        except ValueError as e:
+            raise ValueError("n must be a whole number") from e
+        with self._lock:
+            self._require_map()
+            stack = self._current_stack(week, exploration)
+            want = min(n, STACK_CAP - len(stack["items"]))
+            log = self.store.get_setting("stack_log") or {}
+            cards = self._deal(want, exploration, stack["week"], {c["key"] for c in stack["items"]}, log, extra=True)
+            stack["items"] = stack["items"] + cards
+            stack["exhausted"] = len(cards) < n or len(stack["items"]) >= STACK_CAP
+            self.store.set_setting("stack", stack)
+            self.store.set_setting("stack_log", log)
+            return self._stack_payload(stack)
+
+    def stack_snooze(self, artist: object, on: object) -> dict:
+        """"Not now": keep this artist out of the next four weeks' batches. No rating is recorded."""
+        name = " ".join(str(artist).split())
+        key = artist_key(name)
+        if not name or not key or len(name) > 200:
+            raise ValueError("artist is required")
+        if not isinstance(on, bool):
+            raise ValueError("on must be true or false")
+        with self._lock:
+            self._require_map()
+            log = self.store.get_setting("stack_log") or {}
+            now = datetime.now(timezone.utc)
+            if on:
+                entry = log.setdefault(key, {"name": name, "first_week": None, "last_week": None,
+                                             "times": 0, "snooze_until": None})
+                entry["snooze_until"] = (now + timedelta(days=STACK_SNOOZE_DAYS)).isoformat()
+            elif key in log:
+                log[key]["snooze_until"] = None
+            self.store.set_setting("stack_log", log)
+            return {"ok": True, "status": self._stack_status(key, latest_by_artist(self.store.feedback()), log, now)}
+
+    def kept(self) -> dict:
+        """Every artist you currently keep, from any part of the app, newest first."""
+        with self._lock:
+            verdicts = latest_by_artist(self.store.feedback())
+            log = self.store.get_setting("stack_log") or {}
+            likes = sorted((f for f in verdicts.values() if f.verdict == "like"), key=lambda f: f.ts, reverse=True)
+            items = [{"artist": f.artist, "ts": f.ts.isoformat(), "source": (f.context or {}).get("source"),
+                      "week": (f.context or {}).get("week")} for f in likes[:200]]
+            return {"items": items, "score": self._stack_score(verdicts, log)}
 
     # ---- accuracy -------------------------------------------------------------------------------
     def evaluate(self, progress: Callable[[str, int, int], None] | None = None) -> dict:

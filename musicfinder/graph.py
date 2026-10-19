@@ -86,6 +86,14 @@ class KnowledgeGraph:
             "tags": {k: v for k, v in self.tags.items() if v}, "popularity": self.popularity,
         }
 
+    def copy(self) -> "KnowledgeGraph":
+        """An independent copy, so a crawl can extend it while the original stays in use."""
+        return KnowledgeGraph(
+            names=dict(self.names), adj={k: dict(nb) for k, nb in self.adj.items()}, agree=dict(self.agree),
+            expanded=set(self.expanded), tags={k: dict(v) for k, v in self.tags.items()},
+            popularity=dict(self.popularity), tagged=set(self.tagged),
+        )
+
     @classmethod
     def from_dict(cls, d: dict) -> "KnowledgeGraph":
         kg = cls()
