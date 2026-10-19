@@ -148,7 +148,7 @@ input[type=range]{accent-color:var(--accent)}
 .rec-state{font-size:.8125rem;color:var(--ink-2);margin-top:12px;max-width:66ch}.rec-state:not(:has(button:not([hidden]))){margin:0}.rec-state button{min-height:36px}
 .rec.rated,.song-rec.rated{padding-left:12px;padding-right:12px}.rated[data-feedback=like]{background:var(--pos-wash)}.rated[data-feedback=dislike]{background:var(--neg-wash)}.rated[data-feedback=known]{background:var(--paper-sunk)}
 .truth-chip{display:inline-block;font-size:.6875rem;color:var(--muted);margin-top:8px;padding:3px 0}
-.stack-slot{display:inline-block;font-size:.6875rem;color:var(--sticker-ink);background:var(--sticker);border-radius:var(--radius-pill);padding:3px 10px;white-space:nowrap}
+.stack-slot{display:inline-block;font-size:.6875rem;color:var(--sticker-ink);background:var(--sticker);border-radius:var(--radius-pill);padding:3px 10px;margin:0 6px 8px 0;white-space:nowrap}
 #stack-sorted .song{padding:12px 0}#stack-sorted .song-why{margin-top:4px}
 .stack-songs{margin-top:12px;max-width:600px}.stack-songs .song{padding:10px 0}.stack-songs .song-title{font-size:.9375rem}.stack-songs .row{gap:6px;justify-content:flex-end}.stack-songs .button,.stack-songs button{font-size:.75rem;min-height:40px}.stack-songs a.button{border-color:transparent;text-decoration:underline}
 .why{font-size:.75rem;color:var(--ink-2);margin-top:6px}.why summary{min-height:32px;padding:4px 0}.evidence-caption{margin-left:10px;color:var(--muted)}

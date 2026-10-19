@@ -846,6 +846,7 @@ function stackCard(item, i, scale) {
   return `<li class="rec stack-card" data-artist="${name}" data-key="${esc(item.key)}" data-ctx="${esc(JSON.stringify(item.context || {}))}" data-index="${i}">
     <div class="rec-rank" aria-hidden="true">${String(i + 1).padStart(2, "0")}</div>
     <div>
+      ${slots ? `<div>${slots}</div>` : ""}
       <h3 class="rec-name">${name}</h3>
       <div class="rec-tags">${tags || "no genre tags"}${listeners}</div>
       <p class="rec-why">${recReason(item)}</p>
@@ -863,7 +864,6 @@ function stackCard(item, i, scale) {
         <button data-stack="snooze" class="quiet">Not now</button>
       </div>
     </div>
-    <div class="rec-side">${slots}</div>
   </li>`;
 }
 
@@ -988,6 +988,7 @@ async function viewThisWeek() {
     const { item, el } = entry;
     const undo = act === "undo";
     const buttons = [...row.querySelectorAll("button[data-stack]")];
+    const hadFocus = row.contains(document.activeElement); // before disabling, which can drop focus
     saving.add(item.key);
     buttons.forEach((b) => { b.disabled = true; });
     try {
@@ -1007,7 +1008,6 @@ async function viewThisWeek() {
       }
       if (!here()) return;
       item.status = status;
-      const focusWasHere = row.contains(document.activeElement);
       const nextCard = el.nextElementSibling || el.previousElementSibling;
       sorted.querySelector(`li[data-key="${CSS.escape(item.key)}"]`)?.remove();
       if (status === "open") {
@@ -1018,7 +1018,7 @@ async function viewThisWeek() {
         sorted.append(toElement(sortedRow(item)));
       }
       render();
-      if (focusWasHere) {
+      if (hadFocus && (row.contains(document.activeElement) || document.activeElement === document.body || !document.activeElement)) {
         const target = status === "open" ? el.querySelector("button[data-stack=keep]")
           : (nextCard?.isConnected && nextCard.querySelector("button[data-stack=keep]")) || sorted.lastElementChild?.querySelector("button");
         target?.focus({ preventScroll: status !== "open" });
