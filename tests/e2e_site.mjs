@@ -149,7 +149,15 @@ check((await page.locator("#pick-chips .pick-chip.love").count()) === picks.leng
 await page.click("#build");
 log(`map with history built in ${(await waitForJob(900_000)).toFixed(0)}s`);
 await page.waitForSelector(".stack-card", { timeout: 120_000 });
-check(JSON.stringify(await stackNames()) === JSON.stringify(dealt.filter((_, i) => i !== 1 && i !== 2)), "this week’s artists stay the same after importing history");
+// The For you rating above can also sort one of these artists (statuses follow every rating), so
+// compare the whole batch: the artists still open plus the ones already sorted.
+{
+  const open = await stackNames();
+  const done = await page.locator("#stack-sorted li").evaluateAll((els) => els.map((el) => el.dataset.artist));
+  log("open after import:", JSON.stringify(open), "sorted:", JSON.stringify(done));
+  check(JSON.stringify([...open, ...done].sort()) === JSON.stringify([...dealt].sort()), "this week’s artists stay the same after importing history");
+  check(JSON.stringify(open) === JSON.stringify(dealt.filter((name) => open.includes(name))), "the open artists keep their order after importing history");
+}
 await page.goto(base + "/#for-you");
 await page.waitForSelector(".rec", { timeout: 60_000 });
 await page.waitForFunction(() => document.querySelectorAll(".rec").length >= 20, null, { timeout: 60_000 });
@@ -173,11 +181,17 @@ await page.goto(base + "/#accuracy");
 await page.waitForSelector("#run-eval", { timeout: 60_000 });
 await page.click("#run-eval");
 const evalStart = Date.now();
-await page.waitForSelector("#job-strip:not([hidden])", { timeout: 30_000 });
+// With every lookup cached the test can finish before the first progress poll, so the progress
+// strip may never appear: wait for the strip or for the job's closing message.
+const evalDone = () => /Accuracy test finished|Testing accuracy on your own history failed/.test(document.querySelector("#toast")?.textContent || "");
+await page.waitForFunction(() => !document.querySelector("#job-strip").hidden
+  || /Accuracy test finished|Testing accuracy on your own history failed/.test(document.querySelector("#toast")?.textContent || ""), null, { timeout: 30_000 });
 while (await page.locator("#job-strip:not([hidden])").count()) {
   await page.waitForTimeout(2000);
   if (Date.now() - evalStart > 1_500_000) throw new Error("accuracy test took too long");
 }
+await page.waitForFunction(evalDone, null, { timeout: 30_000 });
+check((await page.locator("#toast").textContent()).includes("Accuracy test finished"), "the accuracy test finished without an error");
 log(`accuracy test finished in ${((Date.now() - evalStart) / 1000).toFixed(0)}s`);
 await page.goto(base + "/#accuracy");
 await page.waitForSelector(".summary p", { timeout: 60_000 });
