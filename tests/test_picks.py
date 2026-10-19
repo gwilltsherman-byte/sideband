@@ -73,7 +73,7 @@ def test_picks_alone_give_accurate_recommendations(tmp_path, world, listener, hi
     assert summary["plays"] == 0 and summary["picks"]["loved"] == favs
     assert all(a["trend"] is None for a in summary["top_artists"])
     report = app.evaluate()
-    assert not report["ok"] and "Spotify export" in report["reason"]
+    assert not report["ok"] and "listening history" in report["reason"]
 
     # Changing a pick marks the map out of date; removing works by name, whatever the capitalisation.
     assert app.graph_ready()
