@@ -1,5 +1,10 @@
 # Sideband
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/brand/sideband-dark.svg">
+  <img src="docs/brand/sideband-light.svg" alt="Sideband" width="288" height="64">
+</picture>
+
 **[Open Sideband](https://sideband.netlify.app/)** · [Use on Mac or iPhone](RUNNING.md#install-the-hosted-app) · [Report a problem](https://github.com/gwilltsherman-byte/sideband/issues/new)
 
 Sideband is my music discovery app. Pick a few artists you love, and every week Sideband deals you ten artists you haven't told it about yet. Choose **Keep**, **Pass**, **Know them** or **Not now** on each one. Nothing you've already seen comes back, and Sideband learns only from what you tell it. No account and no Spotify are needed. Your picks and choices stay on your device; finding new music requires an internet connection.
