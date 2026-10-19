@@ -1,5 +1,5 @@
 // Browser end-to-end test of the hosted build, on an emulated phone: start instantly from a few
-// picked artists (no Spotify export, no API key), then add the export later.
+// picked artists (no Spotify export, no API key), sort this week's artists, then add an export later.
 //   node tests/e2e_site.mjs http://127.0.0.1:8888 path/to/my_spotify_data.zip out_dir '["Artist", ...]'
 import { execSync } from "node:child_process";
 import { createRequire } from "node:module";
@@ -52,6 +52,52 @@ await page.screenshot({ path: `${outDir}/site-picks.png` });
 
 await page.click("#build");
 log(`map from picks built in ${(await waitForJob(600_000)).toFixed(0)}s`);
+
+// This week: a stack of unfamiliar artists to sort one by one.
+await page.waitForSelector(".stack-card", { timeout: 120_000 });
+check(new URL(page.url()).hash === "#this-week", "lands on This week after building");
+check((await page.locator(".view-head").innerText()).includes("you picked"), "This week says what it is based on");
+const stackNames = async () => page.locator("#stack-open .stack-card .rec-name").allInnerTexts();
+const sortedText = async () => page.locator("#stack-sorted").innerText().catch(() => "");
+const progressText = async () => page.locator("#stack-progress").innerText();
+const dealt = await stackNames();
+check(dealt.length >= 5, `${dealt.length} artists dealt for this week`);
+check(!dealt.some((r) => picks.includes(r)), "picked artists are not dealt back");
+const total = dealt.length;
+check(await progressText() === `0 of ${total} sorted`, "progress starts at none sorted");
+const card = (name) => page.locator(`.stack-card[data-artist="${name.replace(/"/g, '\\"')}"]`);
+const sortedRow = (name) => page.locator(`#stack-sorted li[data-artist="${name.replace(/"/g, '\\"')}"]`);
+
+await card(dealt[0]).locator("button[data-stack=keep]").click();
+await sortedRow(dealt[0]).waitFor({ timeout: 60_000 });
+check(!(await stackNames()).includes(dealt[0]), "a kept artist leaves the open stack");
+check((await sortedRow(dealt[0]).innerText()).includes("Kept"), "the kept artist is listed as Kept");
+check(await progressText() === `1 of ${total} sorted`, "progress counts the kept artist");
+await page.waitForFunction((n) => [...document.querySelectorAll("#keepers-list li")].some((li) => li.dataset.artist === n), dealt[0], { timeout: 60_000 });
+check(true, "the kept artist appears in Your keepers");
+await sortedRow(dealt[0]).locator("button[data-stack=undo]").click();
+await card(dealt[0]).locator("button[data-stack=keep]").waitFor({ timeout: 60_000 });
+check((await stackNames())[0] === dealt[0], "Undo returns the artist to its place in the stack");
+check(await progressText() === `0 of ${total} sorted`, "progress drops after Undo");
+
+await card(dealt[1]).locator("button[data-stack=pass]").click();
+await sortedRow(dealt[1]).waitFor({ timeout: 60_000 });
+check((await sortedRow(dealt[1]).innerText()).includes("Passed"), "a passed artist is listed as Passed");
+await card(dealt[2]).locator("button[data-stack=snooze]").click();
+await sortedRow(dealt[2]).waitFor({ timeout: 60_000 });
+check((await sortedRow(dealt[2]).innerText()).includes("Not now"), "a snoozed artist is listed as Not now");
+check(await progressText() === `2 of ${total} sorted`, "progress counts each sorted artist");
+await page.screenshot({ path: `${outDir}/site-this-week.png` });
+
+await page.reload();
+await page.waitForSelector(".stack-card", { timeout: 120_000 });
+await page.waitForFunction(() => document.querySelectorAll("#stack-sorted li").length === 2, null, { timeout: 60_000 });
+check(await progressText() === `2 of ${total} sorted`, "sorted choices survive a reload");
+check((await sortedRow(dealt[1]).innerText()).includes("Passed") && (await sortedRow(dealt[2]).innerText()).includes("Not now"), "statuses survive a reload");
+check(JSON.stringify(await stackNames()) === JSON.stringify(dealt.filter((_, i) => i !== 1 && i !== 2)), "the same artists are shown after a reload");
+
+// For you: the full ranked list is still available.
+await page.goto(base + "/#for-you");
 await page.waitForSelector(".rec", { timeout: 60_000 });
 check(await page.locator("#batch-size").inputValue() === "10", "starts with a manageable list of ten artists");
 await page.selectOption("#batch-size", "30");
@@ -59,7 +105,7 @@ await page.waitForFunction(() => document.querySelectorAll(".rec").length >= 20,
 let recs = await page.locator(".rec-name").allInnerTexts();
 check(recs.length >= 20, `${recs.length} recommendations from picks alone`);
 check(!recs.some((r) => picks.includes(r)), "picked artists are not recommended back");
-check((await page.locator(".view-head p").first().innerText()).includes("you picked"), "says what the picks are based on");
+check((await page.locator(".view-head").innerText()).includes("you picked"), "says what the picks are based on");
 await page.screenshot({ path: `${outDir}/site-foryou-picks.png` });
 
 await page.locator(".rec").first().locator("button[data-act=like]").click();
@@ -88,9 +134,9 @@ check(true, "taste page works with picks only");
 
 await page.goto(base + "/#accuracy");
 await page.waitForSelector("#run-eval", { timeout: 60_000 });
-check(await page.locator("#run-eval").isDisabled(), "accuracy test waits for the Spotify export");
+check(await page.locator("#run-eval").isDisabled(), "the replay test waits for an imported listening history");
 
-// 2. Later, the Spotify export arrives: add it, and the map is updated with it.
+// 2. Optional extra: a Spotify listening history is imported later, and the map is updated with it.
 await page.goto(base + "/#setup");
 await page.locator("#history-details summary").click();
 await page.waitForSelector("#drop", { timeout: 60_000 });
@@ -102,7 +148,11 @@ check(true, "offers to update the recommendations");
 check((await page.locator("#pick-chips .pick-chip.love").count()) === picks.length, "picks kept after importing");
 await page.click("#build");
 log(`map with history built in ${(await waitForJob(900_000)).toFixed(0)}s`);
+await page.waitForSelector(".stack-card", { timeout: 120_000 });
+check(JSON.stringify(await stackNames()) === JSON.stringify(dealt.filter((_, i) => i !== 1 && i !== 2)), "this week’s artists stay the same after importing history");
+await page.goto(base + "/#for-you");
 await page.waitForSelector(".rec", { timeout: 60_000 });
+await page.waitForFunction(() => document.querySelectorAll(".rec").length >= 20, null, { timeout: 60_000 });
 recs = await page.locator(".rec-name").allInnerTexts();
 check(recs.length >= 20, `${recs.length} recommendations with history`);
 await page.screenshot({ path: `${outDir}/site-foryou.png` });

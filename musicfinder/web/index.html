@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Sideband: find artists and songs</title>
-  <meta name="description" content="Recommends artists and songs from your Spotify listening history, explains every pick, and measures its own accuracy on your data.">
+  <meta name="description" content="Finds artists you haven't heard yet from the ones you love, explains every pick, and learns from what you keep.">
   <meta name="theme-color" content="#faf7f0" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#19151a" media="(prefers-color-scheme: dark)">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%23331c2a'/%3E%3Ccircle cx='16' cy='16' r='6' fill='%23eec36d'/%3E%3Ccircle cx='16' cy='16' r='1.6' fill='%23331c2a'/%3E%3C/svg%3E">
@@ -14,12 +14,12 @@
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
   <header class="masthead">
-    <a class="wordmark" href="#for-you" aria-label="Sideband home">
+    <a class="wordmark" href="#this-week" aria-label="Sideband home">
       <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="14" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="16" cy="16" r="8" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="16" cy="16" r="2" fill="currentColor"/></svg>
       Sideband
     </a>
     <p class="brand-note">Follow your ears.</p>
-    <nav class="tabs" aria-label="Sections"><a href="#for-you"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg><span>For you</span></a><a href="#songs"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V5l11-2v13M9 8l11-2"/><ellipse cx="6" cy="18" rx="3" ry="2"/><ellipse cx="17" cy="16" rx="3" ry="2"/></svg><span>Songs</span></a><a href="#explore"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m16 8-3 5-5 3 3-5Z"/></svg><span>Explore</span></a><a href="#taste"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 5c-3-3-7-1-8 1-1-2-5-4-8-1-4 4 2 10 8 15 6-5 12-11 8-15Z"/></svg><span>Your taste</span></a><a href="#accuracy"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10m8 10V4m8 16v-7"/></svg><span>Accuracy</span></a><a href="#setup"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/></svg><span>Setup</span></a></nav>
+    <nav class="tabs" aria-label="Sections"><a href="#this-week"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg><span>This week</span></a><a href="#songs"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V5l11-2v13M9 8l11-2"/><ellipse cx="6" cy="18" rx="3" ry="2"/><ellipse cx="17" cy="16" rx="3" ry="2"/></svg><span>Songs</span></a><a href="#explore"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m16 8-3 5-5 3 3-5Z"/></svg><span>Explore</span></a><a href="#taste"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 5c-3-3-7-1-8 1-1-2-5-4-8-1-4 4 2 10 8 15 6-5 12-11 8-15Z"/></svg><span>Your taste</span></a><a href="#accuracy"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10m8 10V4m8 16v-7"/></svg><span>Accuracy</span></a><a href="#setup"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/></svg><span>Setup</span></a></nav>
     <label class="theme-choice" for="theme-select"><span>Appearance</span><select id="theme-select"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
     <div class="rail-note"><p>Good music starts<br>with what you love.</p><span>Your taste. Your device.</span></div>
   </header>

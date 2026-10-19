@@ -1,5 +1,6 @@
 // Sideband single-page UI. Plain ES module, no build step.
-import { explorationChoice, batchChoice, nextRecommendationAction, latestRequest, quickReviewCurrent, quickInputKind } from "./ui-state.js";
+import { explorationChoice, batchChoice, nextRecommendationAction, latestRequest, quickReviewCurrent, quickInputKind,
+  weekStart, addDaysISO, LISTEN_SERVICES, listenChoice, listenUrl, stackStatusLabel } from "./ui-state.js";
 import { ARTIST_STYLES, artistChoices, artistIdentity } from "./artist-picker.js";
 import { previewObservation, feedbackIdentity, feedbackIO } from "./listening-signals.js";
 import { previewAvailability, previewInViewport } from "./preview-state.js";
@@ -43,8 +44,10 @@ const pct = (x, digits = 0) => (x == null ? "n/a" : `${(x * 100).toFixed(digits)
 const fmt = (n) => (n == null ? "—" : Number(n).toLocaleString());
 const compact = (n) => (n == null ? "—" : Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(n));
 const listJoin = (items) => (items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
-const spotifyUrl = (artist, title = "") => `https://open.spotify.com/search/${enc((title ? `${title} ` : "") + artist)}`;
-const spotifyLink = (artist, track = "", label = "Spotify ↗") => `<a class="button" href="${spotifyUrl(artist, track)}" target="_blank" rel="noopener" data-listen-open data-artist="${esc(artist)}" data-track="${esc(track)}">${label}</a>`;
+// Every listen link opens the listener's chosen service (This week's "Listen on" choice).
+let listenOn = listenChoice(store("mf.listenOn"));
+const listenLabel = () => `Open in ${LISTEN_SERVICES[listenOn]} ↗`;
+const listenLink = (artist, track = "", label = listenLabel()) => `<a class="button" href="${esc(listenUrl(listenOn, artist, track))}" target="_blank" rel="noopener" data-listen-open data-artist="${esc(artist)}" data-track="${esc(track)}">${label}</a>`;
 const feedbackChoices = new Map();
 const feedbackSaving = new Set();
 const feedbackAccess = feedbackIO({
@@ -249,7 +252,7 @@ function jobButton(btn, path, onStarted = () => route()) {
 const canBuild = () => Boolean(state.has_data || state.plays || (state.picks && state.picks.loved));
 
 // ---------------------------------------------------------------- routing
-const views = { "for-you": viewForYou, songs: viewSongs, explore: viewExplore, taste: viewTaste, accuracy: viewAccuracy, setup: viewSetup };
+const views = { "this-week": viewThisWeek, "for-you": viewForYou, songs: viewSongs, explore: viewExplore, taste: viewTaste, accuracy: viewAccuracy, setup: viewSetup };
 
 let routeSeq = 0; // each navigation's number: a slower, older one never overwrites a newer one
 let setupPickListener = null;
@@ -263,9 +266,9 @@ async function route() {
     document.removeEventListener("sideband-picks", setupPickListener);
     setupPickListener = null;
   }
-  let name = location.hash.slice(1) || "for-you";
-  if (name === "main") { main.focus(); name = main.dataset.view || "for-you"; }
-  if (!views[name]) name = "for-you";
+  let name = location.hash.slice(1) || "this-week";
+  if (name === "main") { main.focus(); name = main.dataset.view || "this-week"; }
+  if (!views[name]) name = "this-week";
   try {
     await refreshState();
   } catch (err) {
@@ -278,7 +281,7 @@ async function route() {
   if (mine !== routeSeq) return;
   if (!canBuild() && !state.graph_exists && !["setup", "taste", "accuracy"].includes(name)) name = "setup";
   main.dataset.view = name;
-  document.title = `${({"for-you":"For you",songs:"Songs",explore:"Explore",taste:"Your taste",accuracy:"Accuracy",setup:"Setup"})[name]} · Sideband`;
+  document.title = `${({"this-week":"This week","for-you":"For you",songs:"Songs",explore:"Explore",taste:"Your taste",accuracy:"Accuracy",setup:"Setup"})[name]} · Sideband`;
   document.querySelectorAll(".tabs a").forEach((a) => {
     if (a.getAttribute("href") === `#${name}`) {
       a.setAttribute("aria-current", "page");
@@ -415,10 +418,15 @@ const meterKey = `<div class="meter-key small" aria-hidden="true">
   <span><span class="key-swatch" style="background:var(--ink);width:3px"></span>net score</span>
 </div>`;
 
-function recRow(r, i, scale, extraCtx = {}) {
-  const tags = (r.tags || []).slice(0, 4).map(esc).join(" · ");
+// Why an artist was suggested, as safe HTML.
+function recReason(r) {
   const because = r.because?.length ? `Because of ${listJoin(r.because.slice(0, 3).map((n) => `<b>${esc(n)}</b>`))} in your taste` : "Reached through your wider taste network";
   const shared = r.shared_tags?.length ? `; shares ${listJoin(r.shared_tags.map(esc))} with your taste.` : ".";
+  return because + shared;
+}
+
+function recRow(r, i, scale, extraCtx = {}) {
+  const tags = (r.tags || []).slice(0, 4).map(esc).join(" · ");
   const prob = r.like_probability != null
     ? `<div class="prob" title="An estimate fitted to your own ratings; not independently validated">≈${Math.round(r.like_probability * 100)}% provisional like estimate</div>` : "";
   const truth = r.true_like_probability != null
@@ -431,12 +439,12 @@ function recRow(r, i, scale, extraCtx = {}) {
     <div>
       <h3 class="rec-name">${esc(r.name)}</h3>
       <div class="rec-tags">${tags || "no genre tags"}${listeners}</div>
-      <p class="rec-why">${because}${shared}</p>
+      <p class="rec-why">${recReason(r)}</p>
       ${meter(r, scale)}
       ${truth}
       <div class="rec-actions">
         ${previewControl()}
-        ${spotifyLink(r.name, "", "Open in Spotify ↗")}
+        ${listenLink(r.name)}
         ${ratingButtons(r.name, "", verdict)}
       </div>
       ${ratingStatus(r.name, "", verdict)}
@@ -700,12 +708,22 @@ function dialText(e) {
   return "Adventurous: less famous artists further from your usual genres. Lower hit rate, more discoveries.";
 }
 
+function dialMarkup(note = "") {
+  return `<details class="dial" ${matchMedia("(min-width: 651px)").matches ? "open" : ""}><summary>Tune your discoveries</summary>
+        <label for="dial">How adventurous?</label>
+        <input id="dial" type="range" min="0" max="1" step="0.05" value="${exploration}">
+        <div class="dial-ends"><span>Safe bets</span><span>Adventurous</span></div>
+        <output id="dial-say" for="dial">${dialText(exploration)}</output>
+        ${note ? `<p class="small muted">${note}</p>` : ""}
+      </details>`;
+}
+
 function personalizationPanel() {
   const p = state.personalization || {};
   const next = nextRecommendationAction(state);
   const title = {
     working: "Your recommendations are being updated",
-    history: "Make this more personal with your history",
+    history: "Start with artists you love",
     taste: "Your favourites shape these picks",
     more_history: "More history can sharpen personal settings",
     prepare: state.plays ? "Get more from your listening history" : "Update your music map",
@@ -714,11 +732,11 @@ function personalizationPanel() {
   }[next];
   const reason = p.reason || (state.plays
     ? "Check which settings predict your later listening best, then use a fitted model when the evidence supports it."
-    : "Import a Spotify export to learn from your plays, listening dates and any recorded skips. Your favourite picks are kept.");
+    : "Your picks and your Keep and Pass choices shape these recommendations.");
   const range = p.first && p.last ? ` · ${esc(p.first)} to ${esc(p.last)}` : "";
   const details = state.plays ? `${fmt(state.plays)} plays${range}${p.has_skip_data === false ? " · no skip information" : ""}` : basisText();
   const action = next === "prepare" ? `<button id="prepare-for-you" class="primary">${state.plays ? "Improve from my history" : "Update my recommendations"}</button>`
-    : next === "history" ? `<a class="button" href="#setup">Add my history</a>`
+    : next === "history" ? `<a class="button" href="#setup">Pick favourites</a>`
     : next === "taste" ? `<a class="button" href="#setup">Refine my taste</a>`
     : next === "more_history" ? `<a class="button" href="#setup">Add more history</a>`
     : `<a class="button" href="#accuracy">See accuracy and evidence</a>`;
@@ -739,12 +757,7 @@ async function viewForYou() {
   main.innerHTML = `
     <div class="view-head">
       <div><h1>Find your next favourite.</h1><p>Unfamiliar artists. A familiar feeling.</p><p class="small muted">Based on ${basisText()} <a href="#setup">Edit your starting point</a></p></div>
-      <details class="dial" ${matchMedia("(min-width: 651px)").matches ? "open" : ""}><summary>Tune your discoveries</summary>
-        <label for="dial">How adventurous?</label>
-        <input id="dial" type="range" min="0" max="1" step="0.05" value="${exploration}">
-        <div class="dial-ends"><span>Safe bets</span><span>Adventurous</span></div>
-        <output id="dial-say" for="dial">${dialText(exploration)}</output>
-      </details>
+      ${dialMarkup()}
     </div>
     ${personalizationPanel().replace("</details>", `<p class="small muted model-explanation">${sub}</p></details>`)}
     <div class="recommendation-controls"><div class="row"><label for="batch-size">Artists at a time</label>
@@ -772,7 +785,7 @@ async function viewForYou() {
       stopPreview();
       box.innerHTML = items.length
         ? items.map((r, i) => recRow(r, i, scale)).join("")
-        : `<li class="empty">No unfamiliar artists found near your taste yet. Pick a few more artists you love in <a href="#setup">Setup</a>, or add more Spotify history.</li>`;
+        : `<li class="empty">No unfamiliar artists found near your taste yet. Pick a few more artists you love in <a href="#setup">Setup</a>.</li>`;
       status.textContent = `${items.length} artists to discover. Listen, rate, and make this list yours.`;
       refresh.textContent = "Refresh my list";
       observePreviews();
@@ -808,6 +821,292 @@ async function viewForYou() {
   await load();
 }
 
+// ---------------------------------------------------------------- This week
+// One automatic map update per page session; a newly saved pick or list allows another.
+let autoBuildTried = false;
+const STACK_VERDICTS = { keep: "like", pass: "dislike", known: "known" };
+const STACK_STATUS = { like: "kept", dislike: "passed", known: "known" };
+const localDate = (iso) => { const [y, m, d] = String(iso).split("-").map(Number); return new Date(y, m - 1, d); };
+const toElement = (html) => { const t = document.createElement("template"); t.innerHTML = html.trim(); return t.content.firstElementChild; };
+
+function scoreLine(score) {
+  if (!score?.shown) return "";
+  const since = score.since ? localDate(score.since).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" }) : "";
+  return `${since ? `Since ${since}: ` : ""}${fmt(score.shown)} artists shown, ${fmt(score.kept)} kept, ${fmt(score.passed)} passed, ${fmt(score.known)} you already knew.`;
+}
+
+function stackCard(item, i, scale) {
+  const name = esc(item.name);
+  const tags = (item.tags || []).slice(0, 4).map(esc).join(" · ");
+  const listeners = item.popularity ? ` · ${compact(item.popularity)} listeners` : "";
+  const truth = item.true_like_probability != null
+    ? `<span class="truth-chip">Simulation’s true like-probability: ${Math.round(item.true_like_probability * 100)}%</span>` : "";
+  const slots = [item.slot === "wildcard" ? "Wildcard" : "", item.second_look ? "Second look" : ""]
+    .filter(Boolean).map((label) => `<span class="stack-slot">${label}</span>`).join("");
+  return `<li class="rec stack-card" data-artist="${name}" data-key="${esc(item.key)}" data-ctx="${esc(JSON.stringify(item.context || {}))}" data-index="${i}">
+    <div class="rec-rank" aria-hidden="true">${String(i + 1).padStart(2, "0")}</div>
+    <div>
+      <h3 class="rec-name">${name}</h3>
+      <div class="rec-tags">${tags || "no genre tags"}${listeners}</div>
+      <p class="rec-why">${recReason(item)}</p>
+      ${meter(item, scale)}
+      ${truth}
+      <div class="rec-actions">
+        ${previewControl()}
+        ${listenLink(item.name)}
+        <button data-act="more-songs" aria-label="More songs by ${name}">More songs</button>
+      </div>
+      <div class="rec-actions" role="group" aria-label="Your choice for ${name}">
+        <button data-stack="keep" class="primary">Keep</button>
+        <button data-stack="pass">Pass</button>
+        <button data-stack="known" class="quiet">Know them</button>
+        <button data-stack="snooze" class="quiet">Not now</button>
+      </div>
+    </div>
+    <div class="rec-side">${slots}</div>
+  </li>`;
+}
+
+function sortedRow(item) {
+  return `<li class="song" data-key="${esc(item.key)}" data-artist="${esc(item.name)}">
+    <div class="song-details"><div class="song-title">${esc(item.name)}</div><div class="song-why">${esc(stackStatusLabel(item.status))}</div></div>
+    <button data-stack="undo" class="quiet" aria-label="Undo your choice for ${esc(item.name)}">Undo</button></li>`;
+}
+
+async function viewThisWeek() {
+  if (needsGraph()) return;
+  const mine = routeSeq;
+  if (state.graph_exists && !state.graph_ready && state.lookup_available !== false && !state.job.running && !autoBuildTried) {
+    autoBuildTried = true;
+    startJob("/api/build"); // the job strip shows progress; this view redraws when it finishes
+  }
+  main.innerHTML = `
+    <div class="view-head">
+      <div><h1>Your ten for this week.</h1><p>Artists you haven’t told Sideband about yet, chosen from your taste. Keep or pass each one; nothing you’ve already seen comes back.</p><p class="small muted">Based on ${basisText()} <a href="#setup">Edit your starting point</a></p></div>
+      ${dialMarkup("Applies to your next picks and to “5 more”.")}
+    </div>
+    <div id="stack-view">
+      <div class="recommendation-controls"><div class="row"><label for="listen-on">Listen on</label>
+        <select id="listen-on">${Object.entries(LISTEN_SERVICES).map(([id, label]) => `<option value="${id}" ${id === listenOn ? "selected" : ""}>${label}</option>`).join("")}</select></div>
+        <p class="small muted" id="stack-progress" role="status">Choosing this week’s artists…</p>
+      </div>
+      <ol class="recs" id="stack-open"><li class="loading">Choosing this week’s artists…</li></ol>
+      <div class="row" id="stack-more-row" hidden><button id="stack-more">5 more</button></div>
+      <div id="stack-done" class="empty" hidden></div>
+      <section class="section" id="stack-sorted-section" hidden><h2>Sorted this week</h2><ol class="songs" id="stack-sorted"></ol></section>
+      <section class="section" id="keepers"><h2>Your keepers</h2><div id="keepers-body"><p class="loading">Loading your keepers…</p></div></section>
+      <p class="section"><a href="#for-you">Browse the full ranked list</a></p>
+    </div>`;
+  $("#dial").addEventListener("input", (e) => {
+    // Only later deals use the new setting; this week’s cards stay as they are.
+    exploration = Number(e.target.value);
+    store("mf.exploration", String(exploration));
+    $("#dial-say").textContent = dialText(exploration);
+  });
+  const view = $("#stack-view");
+  const box = $("#stack-open");
+  const sorted = $("#stack-sorted");
+  const progress = $("#stack-progress");
+  const done = $("#stack-done");
+  const entries = new Map(); // artist key -> { item, el, index }, in dealt order
+  const saving = new Set();
+  let week = weekStart();
+  let exhausted = false;
+  let dealing = false;
+  let keepers = [];
+  const here = () => mine === routeSeq && view.isConnected;
+
+  const insertOpen = (entry) => {
+    const after = [...box.children].find((li) => Number(li.dataset.index) > entry.index);
+    box.insertBefore(entry.el, after || null);
+  };
+  const addItems = (list) => {
+    const scale = meterScale(list);
+    list.forEach((item, index) => {
+      if (entries.has(item.key)) return;
+      item.status = item.status || "open";
+      const entry = { item, el: toElement(stackCard(item, index, scale)), index };
+      entries.set(item.key, entry);
+      if (item.status === "open") insertOpen(entry);
+      else sorted.append(toElement(sortedRow(item)));
+    });
+  };
+  const render = () => {
+    const all = [...entries.values()].map((entry) => entry.item);
+    const open = all.filter((item) => item.status === "open").length;
+    const kept = all.filter((item) => item.status === "kept").length;
+    progress.textContent = `${all.length - open} of ${all.length} sorted`;
+    box.hidden = !open;
+    $("#stack-more-row").hidden = !open || exhausted;
+    $("#stack-more").disabled = dealing;
+    $("#stack-sorted-section").hidden = !sorted.children.length;
+    done.hidden = Boolean(open);
+    if (open) return;
+    const nextWeek = localDate(addDaysISO(week, 7)).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" });
+    done.innerHTML = `${all.length ? `<h2>All sorted.</h2><p>You kept ${kept} this week.</p>` : ""}
+      ${exhausted ? `<p>That’s everything near your taste for now. Add more favourites in <a href="#setup">Setup</a>, or try <a href="#explore">Explore</a>.</p>` : ""}
+      <p>Your next ten arrive on ${esc(nextWeek)}.</p>
+      ${exhausted ? "" : `<button class="primary" id="stack-deal" ${dealing ? "disabled" : ""}>Deal 5 more now</button>`}`;
+  };
+
+  const keeperRequests = latestRequest();
+  const loadKeepers = async () => {
+    const token = keeperRequests.start();
+    const body = $("#keepers-body");
+    try {
+      const data = await api("/api/kept");
+      if (!keeperRequests.current(token) || !body.isConnected) return;
+      keepers = (data.items || []).map((item) => item.artist);
+      const line = scoreLine(data.score);
+      body.innerHTML = `${line ? `<p>${esc(line)}</p>` : ""}
+        ${keepers.length ? `<div class="row"><button id="share-keepers">Share list</button></div>
+          <ol class="songs" id="keepers-list">${keepers.map((artist) => `<li class="song" data-artist="${esc(artist)}"><div class="song-title">${esc(artist)}</div>${listenLink(artist)}</li>`).join("")}</ol>`
+          : `<p class="muted">Artists you keep are listed here, newest first.</p>`}`;
+    } catch (err) {
+      if (keeperRequests.current(token) && body.isConnected) body.innerHTML = `<p class="error">Couldn’t load your keepers: ${esc(err.message)}</p>`;
+    }
+  };
+  const shareKeepers = async () => {
+    const text = keepers.join("\n");
+    if (navigator.share) {
+      try { await navigator.share({ title: "My Sideband keepers", text }); return; }
+      catch (err) { if (err?.name === "AbortError") return; /* otherwise copy or download instead */ }
+    }
+    if (navigator.clipboard?.writeText) {
+      try { await navigator.clipboard.writeText(text); toast("Your keepers are copied. Paste them anywhere."); return; }
+      catch { /* fall back to a download */ }
+    }
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(new Blob([`${text}\n`], { type: "text/plain" }));
+    link.download = "sideband-keepers.txt";
+    link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 60000);
+  };
+
+  const decide = async (row, act) => {
+    const entry = entries.get(row.dataset.key);
+    if (!entry || saving.has(entry.item.key)) return;
+    const { item, el } = entry;
+    const undo = act === "undo";
+    const buttons = [...row.querySelectorAll("button[data-stack]")];
+    saving.add(item.key);
+    buttons.forEach((b) => { b.disabled = true; });
+    try {
+      let status;
+      if (act === "snooze" || (undo && item.status === "snoozed")) {
+        const res = await api("/api/stack/snooze", { method: "POST", body: { artist: item.name, on: !undo } });
+        status = res?.status || (undo ? "open" : "snoozed");
+      } else {
+        const verdict = undo ? "clear" : STACK_VERDICTS[act];
+        const stats = await saveFeedback({ artist: item.name, track: "", verdict, context: item.context || {} });
+        feedbackRevision += 1;
+        rememberFeedback(stats);
+        const identity = feedbackIdentity(item.name, "");
+        if (verdict === "clear") feedbackChoices.delete(identity);
+        else feedbackChoices.set(identity, verdict);
+        status = undo ? "open" : STACK_STATUS[verdict];
+      }
+      if (!here()) return;
+      item.status = status;
+      const focusWasHere = row.contains(document.activeElement);
+      const nextCard = el.nextElementSibling || el.previousElementSibling;
+      sorted.querySelector(`li[data-key="${CSS.escape(item.key)}"]`)?.remove();
+      if (status === "open") {
+        insertOpen(entry);
+      } else {
+        if (playingBtn && el.contains(playingBtn)) stopPreview();
+        el.remove();
+        sorted.append(toElement(sortedRow(item)));
+      }
+      render();
+      if (focusWasHere) {
+        const target = status === "open" ? el.querySelector("button[data-stack=keep]")
+          : (nextCard?.isConnected && nextCard.querySelector("button[data-stack=keep]")) || sorted.lastElementChild?.querySelector("button");
+        target?.focus({ preventScroll: status !== "open" });
+      }
+      loadKeepers();
+    } catch (err) {
+      toast(`Couldn’t save that: ${err.message}`);
+    } finally {
+      saving.delete(item.key);
+      buttons.forEach((b) => { b.disabled = false; });
+    }
+  };
+
+  const moreSongs = async (btn, card) => {
+    btn.disabled = true;
+    btn.textContent = "Finding songs…";
+    card.querySelector(".stack-songs-error")?.remove();
+    try {
+      const data = await api(`/api/artist/tracks?name=${enc(card.dataset.artist)}&n=5`);
+      const items = data.items || [];
+      const list = toElement(items.length
+        ? `<ul class="songs stack-songs">${items.map((t) => `<li class="song" data-artist="${esc(t.artist)}" data-track="${esc(t.title)}">
+            <div class="song-title">${esc(t.title)}</div><div class="row">${previewControl()}${listenLink(t.artist, t.title)}</div></li>`).join("")}</ul>`
+        : `<p class="small muted stack-songs">No songs found for this artist yet.</p>`);
+      btn.closest(".rec-actions").after(list);
+      btn.hidden = true;
+      // Check these directly: re-observing the page would cancel other cards’ pending checks.
+      list.querySelectorAll("[data-preview-control]").forEach((control) => checkPreview(control));
+    } catch (err) {
+      btn.closest(".rec-actions").after(toElement(`<p class="small error stack-songs-error" role="status">Couldn’t find songs: ${esc(err.message)}. Try again.</p>`));
+      btn.disabled = false;
+      btn.textContent = "More songs";
+    }
+  };
+
+  const dealMore = async () => {
+    if (dealing) return;
+    dealing = true;
+    render();
+    try {
+      const data = await api("/api/stack/more", { method: "POST", body: { week: weekStart(), exploration, n: 5 } });
+      if (!here()) return;
+      if (data.week !== week) { route(); return; } // a new week started while this page was open
+      const before = entries.size;
+      exhausted = Boolean(data.exhausted);
+      addItems(data.items || []);
+      if (entries.size > before) observePreviews();
+    } catch (err) {
+      toast(`Couldn’t deal more artists: ${err.message}`);
+    } finally {
+      dealing = false;
+      if (here()) render();
+    }
+  };
+
+  view.addEventListener("click", (e) => {
+    const btn = e.target.closest("button");
+    if (!btn) return;
+    if (btn.id === "stack-more" || btn.id === "stack-deal") return dealMore();
+    if (btn.id === "share-keepers") return shareKeepers().catch((err) => toast(err.message));
+    if (btn.dataset.act === "more-songs") return moreSongs(btn, btn.closest(".stack-card"));
+    const row = btn.dataset.stack && btn.closest("li[data-key]");
+    if (row) decide(row, btn.dataset.stack);
+  });
+  $("#listen-on").addEventListener("change", (e) => {
+    listenOn = listenChoice(e.target.value);
+    store("mf.listenOn", listenOn);
+    // Sorted cards are kept off-page for Undo, so update them as well as the visible links.
+    for (const root of [main, ...[...entries.values()].map((entry) => entry.el)]) {
+      root.querySelectorAll("a[data-listen-open]").forEach((a) => {
+        a.href = listenUrl(listenOn, a.dataset.artist, a.dataset.track || "");
+        a.textContent = listenLabel();
+      });
+    }
+  });
+
+  const [data] = await Promise.all([api("/api/stack", { method: "POST", body: { week, exploration } }), loadFeedbackChoices()]);
+  if (!here()) return;
+  week = data.week || week;
+  exhausted = Boolean(data.exhausted);
+  stopPreview();
+  box.innerHTML = "";
+  addItems(data.items || []);
+  render();
+  observePreviews();
+  loadKeepers();
+}
+
 // ---------------------------------------------------------------- Songs
 function songRow(s) {
   const verdict = savedVerdict(s, s.artist, s.title);
@@ -817,7 +1116,7 @@ function songRow(s) {
     <div class="song-why">${esc(s.because)}</div>
     ${ratingStatus(s.artist, s.title, verdict)}</div>
     <div class="song-actions"><div class="row song-playback">${previewControl()}
-    ${spotifyLink(s.artist, s.title, "Open in Spotify ↗")}</div>
+    ${listenLink(s.artist, s.title)}</div>
     <div class="row song-ratings" role="group" aria-label="Your opinion of ${esc(s.title)}">${ratingButtons(s.artist, s.title, verdict)}</div></div>
   </li>`;
 }
@@ -956,7 +1255,7 @@ function savedChoiceRow(item) {
   return `<li class="song song-rec rated" data-artist="${esc(item.artist)}" data-track="${esc(track)}" data-feedback="${esc(item.verdict)}" data-ctx="${esc(JSON.stringify(ctx))}">
     <div class="song-details"><div class="song-title">${esc(track || item.artist)}${track ? ` <span class="muted">— ${esc(item.artist)}</span>` : ""}</div>
     <div class="song-why">${track ? "Song choice" : "Artist choice"}</div>${ratingStatus(item.artist, track, item.verdict)}</div>
-    <div class="song-actions"><div class="row">${ratingButtons(item.artist, track, item.verdict)}</div>${spotifyLink(item.artist, track)}</div></li>`;
+    <div class="song-actions"><div class="row">${ratingButtons(item.artist, track, item.verdict)}</div>${listenLink(item.artist, track)}</div></li>`;
 }
 function savedChoices(fb) {
   const items = fb.saved_items || [];
@@ -1004,7 +1303,7 @@ async function viewTaste() {
       <div class="split section">
         <section class="stack"><div><h2>Artists from your favourites</h2><ol class="songs">${artists.map((n) => `<li class="song"><div class="song-title">${esc(n)}</div></li>`).join("")}</ol>
           ${p.picks.disliked.length ? `<p class="small muted">Not for you: ${esc(p.picks.disliked.join(", "))}</p>` : ""}</div>
-          ${songs.length ? `<div><h2>Songs you saved</h2><ol class="songs">${songs.map((s) => `<li class="song"><div><div class="song-title">${esc(s.track)}</div><div class="song-why">${esc(s.artist)}</div></div>${spotifyLink(s.artist, s.track)}</li>`).join("")}</ol></div>` : ""}
+          ${songs.length ? `<div><h2>Songs you saved</h2><ol class="songs">${songs.map((s) => `<li class="song"><div><div class="song-title">${esc(s.track)}</div><div class="song-why">${esc(s.artist)}</div></div>${listenLink(s.artist, s.track)}</li>`).join("")}</ol></div>` : ""}
           <p class="small muted">Showing a sample of your saved input. <a href="#setup">Add or refine your favourites</a>.</p></section>
         <aside class="stack">${genres || `<p class="muted small">Genres appear once your music map is built.</p>`}</aside>
       </div>${savedChoices(fb)}`;
@@ -1084,16 +1383,16 @@ function metricsTable(rep) {
 
 async function viewAccuracy() {
   const mine = routeSeq;
-  const [rep, fb] = await Promise.all([api("/api/evaluation"), feedbackAccess.read()]);
+  const [rep, fb, kept] = await Promise.all([api("/api/evaluation"), feedbackAccess.read(), api("/api/kept").catch(() => null)]);
   if (mine !== routeSeq) return;
   const eligible = state.personalization?.can_evaluate ?? Boolean(state.plays);
   const intro = `<p>Sideband hides your most recent listening, predicts from everything before it, then checks the predictions against the new artists you actually went on to love or skip. Settings are chosen on an earlier window and graded on a later one they never saw.</p>`;
   const runBtn = `<button class="primary" id="run-eval" ${state.job.running || !eligible || state.lookup_available === false ? "disabled" : ""}>${rep && rep.ok ? "Re-run the accuracy test" : "Run the accuracy test"}</button>`;
-  const live = liveAccuracy(fb);
+  const live = liveAccuracy(fb, kept?.score);
   if (!rep || !rep.ok) {
     main.innerHTML = `<div class="view-head"><div><h1>A little proof for your ears.</h1>${intro}</div>
       <div>${runBtn}<p class="small muted">Takes a few minutes the first time: it maps two past versions of your taste.</p></div></div>
-      ${!state.plays ? `<div class="note"><p>The accuracy test replays your listening history, so it needs your Spotify export (see <a href="#setup">Setup</a>). Until that arrives, your Like / Not for me ratings below measure how accurate Sideband is for you.</p></div>`
+      ${!state.plays ? `<div class="note"><p>Your Keep and Pass choices are the measure of how well Sideband suits you. If you import a listening history in <a href="#setup">Setup</a>, a replay test also becomes available.</p></div>`
         : !eligible ? `<div class="note"><p>${esc(state.personalization?.reason || rep?.reason || "More listening history is needed for this test.")} <a href="#setup">Add more history</a></p></div>`
         : rep && rep.reason ? `<div class="note"><p>${esc(rep.reason)}</p></div>` : ""}${live}`;
     jobButton($("#run-eval"), "/api/evaluate");
@@ -1154,14 +1453,16 @@ async function viewAccuracy() {
   jobButton($("#run-eval"), "/api/evaluate");
 }
 
-function liveAccuracy(fb) {
+function liveAccuracy(fb, score) {
   const o = fb.overall;
   const songs = fb.song_overall || { rated: 0 };
   const rows = Object.entries(fb.by_exploration || {});
   const songKinds = { similar_song: "Songs like your favourites", new_artist: "From new artists", deep_cut: "Unheard songs by artists you love", song: "Other songs" };
   const songRows = Object.entries(fb.songs_by_kind || {});
   const cal = fb.calibration;
+  const plain = scoreLine(score);
   return `<section class="section"><h2>Live accuracy: your ratings</h2>
+    ${plain ? `<p>${esc(plain)}</p>` : ""}
     <h3>Artists</h3>
     ${o.rated ? `<p>You liked <b>${o.likes} of ${o.rated}</b> rated artists (${pct(o.like_rate)}; 95% interval ${pct(o.ci95[0])}–${pct(o.ci95[1])}).</p>`
       : `<p class="muted">Rate artists with Like / Not for me to see your artist like rate, with an error bar.</p>`}
@@ -1215,6 +1516,7 @@ function saveArtistPick(artist, verdict) {
   const work = async () => {
     try {
       savedPicks = await api("/api/picks", { method: "POST", body: { artist, verdict } });
+      autoBuildTried = false; // This week may update the map again for the changed taste
       // Refresh counts/readiness after the write, without redrawing whichever view is open.
       await refreshState().catch(() => {});
       return savedPicks;
@@ -1422,6 +1724,7 @@ function bindQuickStarter(chipsBox) {
     status.textContent = "Saving your favourites…";
     try {
       const saved = await api("/api/quick-input", { method: "POST", body: { ...snapshot, preview: false } });
+      autoBuildTried = false;
       await refreshState();
       if (saved.picks) { savedPicks = saved.picks; announcePicks(); }
       store("mf.quickDraft", "");
@@ -1456,11 +1759,11 @@ async function viewSetup() {
   if (!savedPicks || (!pickSaving && intentAtStart === pickIntentSeq && savedAtStart === savedPicks)) savedPicks = picks;
   main.innerHTML = `
     <div class="view-head setup-head"><div><h1>Good music finds good company.</h1>
-      <p>Start with artists you love. We’ll follow the connections.</p></div><a class="text-link" href="#for-you" ${state.graph_exists ? "" : "hidden"}>Back to your discoveries</a></div>
+      <p>Start with artists you love. We’ll follow the connections.</p></div><a class="text-link" href="#this-week" ${state.graph_exists ? "" : "hidden"}>Back to your discoveries</a></div>
     ${BROWSER && IOS && !STANDALONE && !state.demo ? `<div class="note"><p><b>On an iPhone, do this first:</b> tap Share → <b>Add to Home Screen</b>, then open Sideband from the new icon and do the steps below there. The Home Screen app keeps its own copy of your data, separate from Safari, and Safari may delete website data after about a week without a visit.</p></div>` : ""}
     ${artistPickerMarkup()}
     <details class="section"><summary>More ways to add music</summary><div class="stack">${quickStarterMarkup()}</div></details>
-    <details id="history-details" class="section export-help"><summary>Optional: add existing listening history</summary><div class="stack">
+    <details id="history-details" class="section export-help"><summary>Optional extra: import a Spotify listening history</summary><div class="stack">
       <div><h2>Add a Spotify export you already have</h2>
         <p>Already have a Spotify export? Choose the ZIP or all its JSON files together. Importing it again adds only new plays, and keeps your picks and ratings.</p>
         <label class="drop" id="drop" for="files"><strong>Drop my_spotify_data.zip, or the JSON files inside it</strong>
@@ -1636,8 +1939,8 @@ async function viewSetup() {
     } catch (err) { if (stillHere()) pickerStatus.textContent = `Couldn’t remove ${name}: ${err.message}. Try again.`; }
   });
   const openRecommendations = () => {
-    if (location.hash === "#for-you") route();
-    else location.hash = "#for-you";
+    if (location.hash === "#this-week") route();
+    else location.hash = "#this-week";
   };
   jobButton($("#build"), "/api/prepare", openRecommendations);
   jobButton($("#prepare-history"), "/api/prepare", openRecommendations);
