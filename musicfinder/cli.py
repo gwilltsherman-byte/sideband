@@ -32,7 +32,7 @@ def _app(args):
     from musicfinder.store import Store
 
     if args.demo:
-        print("Demo mode: a simulated listener and catalogue (no Spotify data or network needed).", file=sys.stderr)
+        print("Demo mode: a simulated listener and catalogue (no network needed).", file=sys.stderr)
         return MusicFinder.demo_instance()
     if args.home:
         os.environ["MUSICFINDER_HOME"] = str(Path(args.home).expanduser())
@@ -52,7 +52,7 @@ def cmd_import(args) -> int:
     summary = app.import_paths(args.paths)
     print(json.dumps(summary, indent=2))
     if not summary["plays"] and not summary["library"]:
-        print("No music preferences or Spotify listening data found in those files.", file=sys.stderr)
+        print("No music preferences or listening history found in those files.", file=sys.stderr)
         return 1
     return 0
 
@@ -182,7 +182,8 @@ def cmd_serve(args) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="sideband", description="Find the music you'll love: from a few artists you name, and from your Spotify history.")
+    parser = argparse.ArgumentParser(prog="sideband", description="Find the music you'll love from a few artists you "
+                                     "name; a listening history is an optional extra.")
     parser.add_argument("--version", action="version", version=f"Sideband {__version__}")
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--home", help="data directory (default: ~/.musicfinder or $MUSICFINDER_HOME)")
@@ -197,11 +198,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--no-browser", action="store_true")
     p.set_defaults(fn=cmd_serve)
 
-    p = sub.add_parser("import", parents=[common], help="import music preferences (CSV/TSV/TXT) or Spotify history (ZIP/JSON)")
+    p = sub.add_parser("import", parents=[common], help="import music preferences (CSV/TSV/TXT) or, optionally, a Spotify listening history (ZIP/JSON)")
     p.add_argument("paths", nargs="+")
     p.set_defaults(fn=cmd_import)
 
-    p = sub.add_parser("pick", parents=[common], help="name artists you love (no Spotify export needed)")
+    p = sub.add_parser("pick", parents=[common], help="name artists you love (all Sideband needs)")
     p.add_argument("artists", nargs="+")
     group = p.add_mutually_exclusive_group()
     group.add_argument("--dislike", action="store_true", help="artists you don't want anything like")
