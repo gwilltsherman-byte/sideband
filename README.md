@@ -2,19 +2,53 @@
 
 **[Open Sideband](https://sideband.netlify.app/)** · [Use on Mac or iPhone](RUNNING.md#install-the-hosted-app) · [Report a problem](https://github.com/gwilltsherman-byte/sideband/issues/new)
 
-Sideband is my music discovery app. Start with artists or songs you enjoy, find new music, and rate the suggestions to help it learn your taste. Your picks, ratings and listening history stay on your device. No account is needed; finding new music requires an internet connection.
+Sideband is my music discovery app. Pick a few artists you love, and every week Sideband deals you ten artists you haven't told it about yet. Choose **Keep**, **Pass**, **Know them** or **Not now** on each one. Nothing you've already seen comes back, and Sideband learns only from what you tell it. No account and no Spotify are needed. Your picks and choices stay on your device; finding new music requires an internet connection.
 
 <img src="docs/screenshots/overview.jpg" alt="Sideband’s artist search and favourite-selection screen" width="100%">
 
 ## Start finding music
 
 1. Search for an artist you love, or pick favourites from the starter choices.
-2. Choose **Find my music** to get recommendations.
-3. Listen and mark **Like**, **Not for me** or **Already know** to refine your picks.
+2. Choose **Find my music**. Sideband opens **This week** with your ten.
+3. Listen, then choose **Keep**, **Pass**, **Know them** or **Not now** on each artist.
 
 ## How your ratings work
 
-Start with ten recommendations, listen, and mark **Like**, **Not for me** or **Already know**. Ratings immediately change the taste profile; **Apply ratings** updates the visible list without moving you elsewhere. You can undo a rating, and your adventurous setting and list length survive a reload.
+**This week** shows about ten unfamiliar artists, chosen from your taste. Most
+are close to what you love; one or more are marked **Wildcard**, a little
+further out. How many wildcards you get follows the **adventurous** dial; the
+dial applies to your next ten and to **5 more**, never to the batch you already
+have. An artist shown in an earlier week that you left unanswered can come back
+once, marked **Second look**; after that it is not shown again.
+
+- **Keep** means you like the artist. **Pass** means not for you.
+- **Know them** means you already know the artist, so they are left out of
+  discovery without counting as a like or a dislike.
+- **Not now** sets the artist aside for four weeks without rating them.
+
+Each choice moves the artist into **Sorted this week**, with an **Undo** button
+that puts the card back where it was. A progress line shows how many you have
+sorted. Your batch stays the same for the whole week, including after a reload;
+a new ten arrives the following Sunday. When everything is sorted you can choose
+**Deal 5 more now**, and a small **5 more** button sits under the list while
+cards remain. If there is nothing left near your taste, Sideband says so;
+adding more favourites in Setup, or trying Explore, gives it more to work with.
+
+**More songs** on a card lists five songs by that artist, each with a preview
+when one is found and a listen link. Choose where listen links open with
+**Listen on**: Spotify, Apple Music, YouTube Music, Deezer or Bandcamp. The
+choice applies to every listen link in the app.
+
+**Your keepers** lists every artist you have kept, newest first, with a listen
+link for each. **Share list** shares the names, or copies them when sharing is
+not available. Above it, a plain score sums up how many artists you have been
+shown, kept, passed and already knew.
+
+The full ranked list is still available: choose **Browse the full ranked list**
+on This week to open **For you**. There you can mark **Like**, **Not for me** or
+**Already know them**; **Apply ratings** updates the visible list without moving
+you elsewhere. You can undo a rating, and your adventurous setting and list
+length survive a reload.
 
 Songs have **Like**, **Dislike**, **Already know** and **Undo** controls too.
 Liking a song makes it a seed for related songs. Disliking it removes that song,
@@ -25,16 +59,16 @@ evidence about that artist; an explicit artist preference carries more weight.
 
 **Play preview** appears after a matching audio clip is found. Songs on screen
 are checked automatically; the rest are checked as you scroll. When a clip is
-missing, Sideband shows a plain status beside **Open in Spotify**. A failed
+missing, Sideband shows a plain status beside the listen link. A failed
 lookup offers **Retry check**, and failed audio offers **Reload preview**.
 
 Sideband also learns weaker interest signals from listening to previews and
 opening music links. A preview must actually play for at least ten seconds;
 seeking, buffering and failed playback do not count. Repeated signals are
 capped and fade with time, and cannot override an explicit dislike. Opening
-Spotify records interest in a link, not evidence that you played a song there.
-These signals stay on your device and do not become streaming-history plays
-or inflate the rating-based accuracy results.
+a listen link records interest in a link, not evidence that you played a song
+there. These signals stay on your device and do not become listening-history
+plays or inflate the rating-based accuracy results.
 
 ## Install on iPhone or Mac
 
@@ -64,16 +98,16 @@ Terminal or a running computer.
 
 ## Prediction limits
 
-Predictions depend on the available listening and similarity data. Mood, context and artists outside that data can affect what you enjoy. sideband checks its predictions in several ways:
+Predictions depend on the available similarity data and on what you tell Sideband. Mood, context and artists outside that data can affect what you enjoy. Sideband checks its predictions in several ways:
 
-1. It uses plays and skips to distinguish music you heard from music you enjoyed.
-2. It checks proposed personal settings against defaults on **your** history. A change needs enough observed outcomes and a positive paired bootstrap interval on validation; a sparse or inconclusive history retains defaults.
-3. It tests itself on data it has never seen: it hides your most recent months, predicts from everything before, and reports how many of the artists you actually went on to love it found. Results come with 95% confidence intervals and are compared against baselines.
-4. It tracks your *Like* / *Not for me* ratings as a live hit rate, with an error bar.
+1. It tracks your **Keep** / **Pass** choices (and *Like* / *Not for me* ratings) as a live hit rate, with an error bar. This is the main measure of how well Sideband suits you, and it needs nothing but your choices.
+2. If you import a listening history (see [the optional section below](#optional-import-a-listening-history)), it uses plays and skips to distinguish music you heard from music you enjoyed.
+3. With a history, it checks proposed personal settings against defaults on **your** history. A change needs enough observed outcomes and a positive paired bootstrap interval on validation; a sparse or inconclusive history retains defaults.
+4. With a history, it also tests itself on data it has never seen: it hides your most recent months, predicts from everything before, and reports how many of the artists you actually went on to love it found. Results come with 95% confidence intervals and are compared against baselines.
 
 ## Getting started
 
-**Right away:** in Setup, search for any artist and choose **Love** on the matching result, or tap artists you enjoy in the starter choices. Each pick saves that favourite; tap again to remove it. Choose styles to browse a smaller set, or **Show more** to see other artists. Choose **Find my music** when ready. A few favourites from different parts of your taste give the recommender more to work with, but you can start with one. Browsing a style does not save a preference.
+**Right away:** in Setup, search for any artist and choose **Love** on the matching result, or tap artists you enjoy in the starter choices. Each pick saves that favourite; tap again to remove it. Choose styles to browse a smaller set, or **Show more** to see other artists. Choose **Find my music** when ready; Sideband opens **This week** with your first ten. A few favourites from different parts of your taste give the recommender more to work with, but you can start with one. Browsing a style does not save a preference.
 
 The starter catalog works offline and covers a range of styles and eras. It helps you select familiar artists; live music services supply the similarity data used for recommendations. Selected artists stay in place while you pick, and your saved favourites survive a reload.
 
@@ -96,38 +130,25 @@ Björk,Jóga
 Nina Simone,Sinnerman
 ```
 
-Artist names containing commas belong on their own line, or in quoted CSV fields. A playlist URL or list of Spotify track links is not enough: use music names or a table containing them. The preview shows errors before anything is saved. These are favourites, not measured plays or skips, so the history backtest waits for real listening data; your recommendation ratings work immediately.
+Artist names containing commas belong on their own line, or in quoted CSV fields. A playlist URL or list of Spotify track links is not enough: use music names or a table containing them. The preview shows errors before anything is saved. These are favourites, not measured plays or skips. Your Keep and Pass choices work on them immediately.
 
-You can still search artists individually or use `sideband pick "Artist" "Another artist"`. Marking artists you can't stand helps too. A favourite or a new Like overrides older skips of that artist; hiding a single song does not reject the whole artist.
-
-**For recommendations based on how you actually listen:** add your Spotify history. You don't have to wait for it before using the app. Choose **Improve my recommendations** after importing: eligible new history is tested once, and importing the same files does not trigger another build. The recommendation page shows which history is in use and whether its settings have been tested.
-
-### Optional: add listening history you already have
-
-1. Go to **Spotify → Account → [Privacy settings](https://www.spotify.com/account/privacy/)**.
-2. Tick **Extended streaming history** and request it. This export lists every play since you joined, including how long you listened and whether you skipped. Spotify can take a few days, and up to 30, to send it.
-   *Account data* is faster (about 5 days) and also works, but it only covers the last year and has no skip flags. You can import both.
-3. Drop the `.zip` Spotify emails you into the app (Setup tab), or run `sideband import my_spotify_data.zip`.
-
-The history adds what picks can't: skips, how your taste changes over time, and the accuracy test, which replays your history to measure how well sideband predicts *you*. Until then, your *Like* / *Not for me* ratings measure accuracy.
+You can still search artists individually or use `sideband pick "Artist" "Another artist"`. Marking artists you can't stand (**Not for me**) helps too. A favourite or a new Like overrides older skips of that artist; hiding a single song does not reject the whole artist.
 
 **Data sources:** Deezer, ListenBrainz and MusicBrainz, which need no keys. On a computer, if you have a free [Last.fm API key](https://www.last.fm/api/account/create), set the `LASTFM_API_KEY` environment variable (or run `sideband config --lastfm-key KEY`) to add Last.fm's similarity data too.
-
-### Why not just log in with Spotify?
-Spotify no longer gives new third-party apps its recommendation, related-artist or audio-feature endpoints ([Nov 2024](https://developer.spotify.com/blog/2024-11-27-changes-to-the-web-api)). Since [February 2026](https://developer.spotify.com/documentation/web-api/tutorials/february-2026-migration-guide), development-mode apps also require a Premium owner and are capped at five users. Spotify's [Developer Policy](https://developer.spotify.com/policy) also forbids feeding data from its API into machine-learning models, which is what sideband's ranking is. Your data export is different: it's your own data, sent to you. It's also more informative: the API exposes your last 50 plays, while the export has your whole history *with skips*.
 
 ## How it works
 
 | Step | What happens | Why |
 |---|---|---|
-| **1. Implicit feedback** (`taste.py`) | Each play is scored by the share of the song you heard, whether you chose it (clicked it or went back to it), and whether you skipped it in the first 30 s. The score fades with age (tunable half-life). Liked songs, follows and playlist adds add to it; hidden songs and artists count against. | Implicit-feedback recommender systems ([Hu, Koren & Volinsky 2008](http://yifanhu.net/PUB/cf.pdf)); 30 s is Spotify's own "stream" threshold, and early skips are the clearest dislike signal. |
-| **2. Satisfaction** | For each artist, the probability that a play is not an early skip. It is estimated with a Beta prior fitted to your whole history (empirical Bayes). | An artist you heard twice shouldn't be judged as confidently as one you heard 200 times. |
-| **3. Similarity graph** (`graph.py`) | Starting from your favourites (all-time, recent, and the artists you picked), sideband crawls similar-artist lists from ListenBrainz, Deezer and, if configured, Last.fm, and merges them into one weighted graph. Edges that several sources agree on count more. Genres come from MusicBrainz (looked up ten artists per request) or Last.fm. | Using several independent sources makes the similarity estimates more robust. |
+| **1. Implicit feedback** (`taste.py`) | Only if you import a listening history. Each play is scored by the share of the song you heard, whether you chose it (clicked it or went back to it), and whether you skipped it in the first 30 s. The score fades with age (tunable half-life). Liked songs, follows and playlist adds add to it; hidden songs and artists count against. | Implicit-feedback recommender systems ([Hu, Koren & Volinsky 2008](http://yifanhu.net/PUB/cf.pdf)); 30 s is Spotify's own "stream" threshold, and early skips are the clearest dislike signal. |
+| **2. Satisfaction** | With a listening history: for each artist, the probability that a play is not an early skip. It is estimated with a Beta prior fitted to your whole history (empirical Bayes). | An artist you heard twice shouldn't be judged as confidently as one you heard 200 times. |
+| **3. Similarity graph** (`graph.py`) | Starting from the artists you picked (plus your all-time and recent favourites if you imported a history), sideband crawls similar-artist lists from ListenBrainz, Deezer and, if configured, Last.fm, and merges them into one weighted graph. Edges that several sources agree on count more. Genres come from MusicBrainz (looked up ten artists per request) or Last.fm. | Using several independent sources makes the similarity estimates more robust. |
 | **4. Scoring** (`recommender.py`) | Every unfamiliar artist gets 8 interpretable features: item-based CF, recent-taste CF, Personalized PageRank ([Haveliwala 2002](https://doi.org/10.1145/511446.511513)), how many of your artists point to it, TF-IDF genre-profile cosine, popularity, similarity to artists you skip, and source agreement. A linear model combines them. | Every prediction can be explained. That's the bar under each artist in the app. |
 | **5. Personal fit** (`evaluation.py`) | A time-based backtest compares memory half-life, seed weighting and walk-restart probability on a *validation* window. Regularised logistic regression fits feature weights only to observed repeated/consistently-skipped artists; unheard artists are not invented dislikes. Changes need sufficient outcomes and a positive paired bootstrap improvement interval; weight fitting also uses withheld validation artists. | Different listeners behave differently. Defaults and stronger regularisation protect small histories from overfitting. |
 | **6. Re-ranking** | Maximal Marginal Relevance ([Carbonell & Goldstein 1998](https://doi.org/10.1145/290941.291025)), so a list isn't ten copies of one band. The **adventurous** dial trades predicted accuracy for novelty: less famous artists, further from your genres, a longer random walk. | The backtest reports how many hits you give up at each dial setting. |
 | **7. Exploration** (`explore.py`) | Unfamiliar nearby genres are ordered by Thompson sampling, with a heuristic prior from artist affinity. Each shows *gateway artists* connected to what you already enjoy. Latest ratings update the genre votes once per artist; changing or clearing a rating removes its old vote. The heuristic is not a measured chance of liking a genre. | An explore/exploit approach ([Chapelle & Li 2011](https://papers.nips.cc/paper/4321-an-empirical-evaluation-of-thompson-sampling)), whose real-world results still need your ratings. |
 | **8. Songs** (`tracks.py`) | Three clearly separated lists: songs that go with your most-loved songs (Last.fm's track-to-track similarity, or Deezer's artist radio without it), the best-known song of each recommended artist, and popular songs by your favourite artists that you've never played. | |
+| **9. This week** (`app.py`) | Each week, ten artists you haven't picked, rated or played, taken from the diversified ranking. The adventurous dial sets how many are wildcards, drawn from a more adventurous ranking and spread through the list. An artist left unanswered can return once; after two showings it is retired, and **Not now** sets it aside for four weeks. | A short, fixed batch that you can finish, with no repeats. |
 
 ### How accuracy is measured
 
@@ -156,8 +177,8 @@ Older versions reported higher preference AUC after looking up future outcome ar
 
 ```
 sideband serve [--demo] [--phone] [--port 8765] [--no-browser]
-sideband pick ARTIST... [--dislike | --remove]   # start without any export
-sideband import PATH...                 # CSV/TSV/TXT preferences or Spotify ZIP/JSON history
+sideband pick ARTIST... [--dislike | --remove]   # save favourites (all you need)
+sideband import PATH...                 # CSV/TSV/TXT favourites, or optional Spotify ZIP/JSON history
 sideband config --lastfm-key KEY [--no-listenbrainz]   # optional; or set LASTFM_API_KEY
 sideband profile
 sideband recommend [-n 30] [--explore 0.3]
@@ -167,6 +188,20 @@ sideband evaluate [--json]
 ```
 
 Data is stored in the `~/.musicfinder/` folder (`musicfinder.db` with settings and ratings, `musicfinder-data.db` with your listening history, `musicfinder-cache.db` with cached lookups). To use a different folder, pass `--home DIR` or set `MUSICFINDER_HOME`.
+
+## Optional: import a listening history
+
+Sideband doesn't need any listening history: your favourites and your Keep and Pass choices are all it needs. If you already have a Spotify listening history, you can add it in **Setup** under **Optional extra: import a Spotify listening history**. It adds skips, how your taste has changed over time, and the replay accuracy test, which replays your history to measure how well Sideband predicts *you*. Without it, your Keep and Pass choices measure accuracy.
+
+1. Go to **Spotify → Account → [Privacy settings](https://www.spotify.com/account/privacy/)**.
+2. Tick **Extended streaming history** and request it. This export lists every play since you joined, including how long you listened and whether you skipped. Spotify can take a few days, and up to 30, to send it.
+   *Account data* is faster (about 5 days) and also works, but it only covers the last year and has no skip flags. You can import both.
+3. Drop the `.zip` Spotify emails you into the app (Setup tab), or run `sideband import my_spotify_data.zip`.
+
+Choose **Improve from my history** after importing: eligible new history is tested once, and importing the same files does not trigger another build. The recommendation page shows which history is in use and whether its settings have been tested.
+
+### Why not just log in with Spotify?
+Spotify no longer gives new third-party apps its recommendation, related-artist or audio-feature endpoints ([Nov 2024](https://developer.spotify.com/blog/2024-11-27-changes-to-the-web-api)). Since [February 2026](https://developer.spotify.com/documentation/web-api/tutorials/february-2026-migration-guide), development-mode apps also require a Premium owner and are capped at five users. Spotify's [Developer Policy](https://developer.spotify.com/policy) also forbids feeding data from its API into machine-learning models, which is what sideband's ranking is. Your data export is different: it's your own data, sent to you. It's also more informative: the API exposes your last 50 plays, while the export has your whole history *with skips*.
 
 ## Privacy
 
