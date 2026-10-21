@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-14T10:04:04.798017+00:00",
+  "generatedAt": "2026-10-21T03:24:56.196868Z",
   "title": "Design System: Sideband",
   "extensions": {
     "colorMeta": {
@@ -146,7 +146,7 @@
       },
       "rail": {
         "role": "primary",
-        "displayName": "Aubergine rail",
+        "displayName": "Aubergine masthead",
         "tonalRamp": [
           "oklch(15.000% 0.04259 343.198)",
           "oklch(26.429% 0.04259 343.198)",
@@ -188,7 +188,7 @@
       },
       "rail-active": {
         "role": "primary",
-        "displayName": "Wine rail hover",
+        "displayName": "Masthead divider and control edge",
         "tonalRamp": [
           "oklch(15.000% 0.06381 347.135)",
           "oklch(26.429% 0.06381 347.135)",
@@ -202,7 +202,7 @@
       },
       "rail-current": {
         "role": "secondary",
-        "displayName": "Amber current destination",
+        "displayName": "Amber active navigation",
         "tonalRamp": [
           "oklch(15.000% 0.11561 83.295)",
           "oklch(26.429% 0.11561 83.295)",
@@ -216,7 +216,7 @@
       },
       "rail-current-ink": {
         "role": "secondary",
-        "displayName": "Current destination text",
+        "displayName": "Amber-label ink · compatibility token",
         "tonalRamp": [
           "oklch(15.000% 0.04144 339.228)",
           "oklch(26.429% 0.04144 339.228)",
@@ -230,7 +230,7 @@
       },
       "record-label": {
         "role": "secondary",
-        "displayName": "Amber record label",
+        "displayName": "Amber wordmark hover",
         "tonalRamp": [
           "oklch(15.000% 0.11561 83.295)",
           "oklch(26.429% 0.11561 83.295)",
@@ -524,7 +524,7 @@
       },
       "dark-rail": {
         "role": "primary",
-        "displayName": "Dark · Aubergine rail",
+        "displayName": "Dark · Aubergine masthead",
         "tonalRamp": [
           "oklch(15.000% 0.03272 334.178)",
           "oklch(26.429% 0.03272 334.178)",
@@ -538,7 +538,7 @@
       },
       "dark-rail-active": {
         "role": "primary",
-        "displayName": "Dark · Wine rail hover",
+        "displayName": "Dark · Masthead divider and control edge",
         "tonalRamp": [
           "oklch(15.000% 0.05708 343.431)",
           "oklch(26.429% 0.05708 343.431)",
@@ -694,7 +694,7 @@
     "typographyMeta": {
       "display": {
         "displayName": "Display",
-        "purpose": "Page titles; responsive sizes documented in Layout and Typography."
+        "purpose": "Page titles; weekly phone title uses a compact override."
       },
       "headline": {
         "displayName": "Headline",
@@ -706,7 +706,7 @@
       },
       "artist": {
         "displayName": "Artist",
-        "purpose": "Editorial discovery names."
+        "purpose": "Flat ranked recommendation names."
       },
       "body": {
         "displayName": "Body",
@@ -722,11 +722,15 @@
       },
       "navigation": {
         "displayName": "Navigation",
-        "purpose": "Desktop destination links; current destination uses weight 600."
+        "purpose": "Horizontal masthead links; current destination uses weight 600 and an amber underline."
       },
       "table-number": {
         "displayName": "Table Number",
         "purpose": "Monospace table values with tabular figures."
+      },
+      "listening-artist": {
+        "displayName": "Focused artist",
+        "purpose": "The active weekly artist; responsive sizes preserve the listening action on phones."
       }
     },
     "shadows": [
@@ -770,20 +774,32 @@
     ],
     "breakpoints": [
       {
-        "name": "wide-min",
-        "value": "1550px"
+        "name": "contained-workspace-max",
+        "value": "1320px"
       },
       {
-        "name": "compact-desktop-max",
+        "name": "secondary-split-max",
         "value": "1180px"
       },
       {
-        "name": "header-navigation-max",
+        "name": "compact-workspace-max",
+        "value": "1050px"
+      },
+      {
+        "name": "secondary-actions-stack-max",
         "value": "900px"
       },
       {
-        "name": "mobile-max",
+        "name": "listening-stack-max",
+        "value": "760px"
+      },
+      {
+        "name": "saved-filters-stack-max",
         "value": "650px"
+      },
+      {
+        "name": "small-phone-max",
+        "value": "420px"
       }
     ]
   },
@@ -793,7 +809,7 @@
       "kind": "button",
       "refersTo": "button-primary",
       "description": "The main action for the current listening task.",
-      "html": "<button class=\"ds-primary\">Find my music</button>",
+      "html": "<button class=\"ds-primary\">Keep</button>",
       "css": ".ds-primary{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:9px 15px;border:1px solid var(--line-strong,#928087);border-radius:8px;background:transparent;color:var(--ink,#30252a);font:500 .875rem/1.3 var(--font-text,\"DM Sans\",\"Helvetica Neue\",sans-serif);text-align:center;cursor:pointer;transition:background-color 160ms var(--ease,cubic-bezier(.16,1,.3,1)),border-color 160ms var(--ease,cubic-bezier(.16,1,.3,1));background:var(--button,var(--accent,#7a304b));color:var(--button-ink,#fffdf7);border-color:transparent;font-weight:600;padding:11px 20px}.ds-primary:hover{background:var(--accent-hover,#5e2039)}.ds-primary:focus-visible{outline:3px solid var(--focus,#a64b69);outline-offset:4px;border-radius:4px}.ds-primary:disabled{opacity:.5;cursor:not-allowed}@media(prefers-reduced-motion:reduce){.ds-primary{transition:none}}"
     },
     {
@@ -801,14 +817,14 @@
       "kind": "button",
       "refersTo": "button-secondary",
       "description": "A supporting action with a clear outline.",
-      "html": "<button class=\"ds-secondary\">Show more artists</button>",
+      "html": "<button class=\"ds-secondary\">Pass</button>",
       "css": ".ds-secondary{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:9px 15px;border:1px solid var(--line-strong,#928087);border-radius:8px;background:transparent;color:var(--ink,#30252a);font:500 .875rem/1.3 var(--font-text,\"DM Sans\",\"Helvetica Neue\",sans-serif);text-align:center;cursor:pointer;transition:background-color 160ms var(--ease,cubic-bezier(.16,1,.3,1)),border-color 160ms var(--ease,cubic-bezier(.16,1,.3,1));}.ds-secondary:hover{background:var(--paper-sunk,#f0e9de);border-color:var(--ink-2,#57494e)}.ds-secondary:focus-visible{outline:3px solid var(--focus,#a64b69);outline-offset:4px;border-radius:4px}.ds-secondary:disabled{opacity:.5;cursor:not-allowed}@media(prefers-reduced-motion:reduce){.ds-secondary{transition:none}}"
     },
     {
       "name": "Quiet action",
       "kind": "button",
       "refersTo": "button-quiet",
-      "description": "Low-emphasis actions such as Undo and Already know.",
+      "description": "Low-emphasis actions such as Undo, Know them, and Not now.",
       "html": "<button class=\"ds-quiet\">Undo</button>",
       "css": ".ds-quiet{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:9px 15px;border:1px solid var(--line-strong,#928087);border-radius:8px;background:transparent;color:var(--ink,#30252a);font:500 .875rem/1.3 var(--font-text,\"DM Sans\",\"Helvetica Neue\",sans-serif);text-align:center;cursor:pointer;transition:background-color 160ms var(--ease,cubic-bezier(.16,1,.3,1)),border-color 160ms var(--ease,cubic-bezier(.16,1,.3,1));border-color:transparent;color:var(--muted,#6d6065)}.ds-quiet:hover{background:var(--paper-sunk,#f0e9de);border-color:var(--ink-2,#57494e)}.ds-quiet:focus-visible{outline:3px solid var(--focus,#a64b69);outline-offset:4px;border-radius:4px}.ds-quiet:disabled{opacity:.5;cursor:not-allowed}@media(prefers-reduced-motion:reduce){.ds-quiet{transition:none}}"
     },
@@ -821,12 +837,12 @@
       "css": ".ds-search-label{display:block;font:500 .875rem/1.55 var(--font-text,\"DM Sans\",\"Helvetica Neue\",sans-serif);color:var(--ink,#30252a);margin-bottom:8px}.ds-search{width:100%;min-height:50px;padding:10px 14px;border:1px solid var(--line-strong,#928087);border-radius:8px;background:var(--paper-raised,#fffdf7);color:var(--ink,#30252a);font:400 1rem/1.55 var(--font-text,\"DM Sans\",\"Helvetica Neue\",sans-serif);caret-color:var(--accent,#7a304b)}.ds-search::placeholder{color:var(--muted,#6d6065);opacity:1}.ds-search:focus-visible{outline:3px solid var(--focus,#a64b69);outline-offset:4px;border-radius:4px}"
     },
     {
-      "name": "Aubergine navigation",
+      "name": "Horizontal masthead",
       "kind": "nav",
       "refersTo": "navigation-item",
-      "description": "The aubergine rail’s labeled links, amber current destination, wine hover, and keyboard focus.",
-      "html": "<nav class=\"ds-nav\" aria-label=\"Sections\"><a href=\"#for-you\" aria-current=\"page\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"8\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/></svg><span>For you</span></a><a href=\"#songs\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M9 18V5l11-2v13M9 8l11-2\"/><ellipse cx=\"6\" cy=\"18\" rx=\"3\" ry=\"2\"/><ellipse cx=\"17\" cy=\"16\" rx=\"3\" ry=\"2\"/></svg><span>Songs</span></a><a href=\"#explore\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"m16 8-3 5-5 3 3-5Z\"/></svg><span>Explore</span></a><a href=\"#taste\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M20 5c-3-3-7-1-8 1-1-2-5-4-8-1-4 4 2 10 8 15 6-5 12-11 8-15Z\"/></svg><span>Your taste</span></a><a href=\"#accuracy\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M4 20V10m8 10V4m8 16v-7\"/></svg><span>Accuracy</span></a><a href=\"#setup\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M4 7h16M4 17h16\"/><circle cx=\"9\" cy=\"7\" r=\"3\"/><circle cx=\"15\" cy=\"17\" r=\"3\"/></svg><span>Setup</span></a></nav>",
-      "css": ".ds-nav{display:flex;flex-direction:column;gap:5px;width:176px;padding:18px;background:var(--rail,#331c2a)}.ds-nav a{display:flex;align-items:center;gap:13px;min-height:46px;padding:10px 16px;color:var(--rail-muted,#d9bfcc);font:400 .9375rem/1.55 var(--font-text,\"DM Sans\",\"Helvetica Neue\",sans-serif);text-decoration:none;border-radius:8px}.ds-nav a:nth-child(4){margin-top:28px}.ds-nav a:hover{background:var(--rail-active,#593247);color:var(--rail-ink,#fff3dc)}.ds-nav a[aria-current=page]{background:var(--rail-current,#eec36d);color:var(--rail-current-ink,#392332);font-weight:600}.ds-nav a:focus-visible{outline:3px solid var(--rail-ink,#fff3dc);outline-offset:4px}.ds-nav svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}"
+      "description": "Six inline destinations and shared service/appearance selectors, with the original white-and-pink record mark.",
+      "html": "<header class=\"ds-masthead\"><a class=\"ds-wordmark\" href=\"#this-week\" aria-label=\"Sideband home\"><svg class=\"ds-record\" viewBox=\"0 0 64 64\" aria-hidden=\"true\"><mask id=\"ds-record-hole\"><rect width=\"64\" height=\"64\" fill=\"#fff\"/><circle cx=\"32\" cy=\"32\" r=\"2.6\"/></mask><g mask=\"url(#ds-record-hole)\"><circle cx=\"32\" cy=\"32\" r=\"24\" fill=\"#ffffff\"/><circle cx=\"32\" cy=\"32\" r=\"8.5\" fill=\"#ff3d7f\"/></g></svg>Sideband</a><label class=\"ds-service\">Listen on <select aria-label=\"Listen on\"><option>Spotify</option><option>Apple Music</option></select></label><label class=\"ds-theme\">Appearance <select aria-label=\"Appearance\"><option>System</option><option>Light</option><option>Dark</option></select></label><nav class=\"ds-nav\" aria-label=\"Sections\"><a href=\"#this-week\" aria-current=\"page\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"8\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/></svg><span>This week</span></a><a href=\"#songs\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M9 18V5l11-2v13M9 8l11-2\"/><ellipse cx=\"6\" cy=\"18\" rx=\"3\" ry=\"2\"/><ellipse cx=\"17\" cy=\"16\" rx=\"3\" ry=\"2\"/></svg><span>Songs</span></a><a href=\"#explore\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"m16 8-3 5-5 3 3-5Z\"/></svg><span>Explore</span></a><a href=\"#taste\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M20 5c-3-3-7-1-8 1-1-2-5-4-8-1-4 4 2 10 8 15 6-5 12-11 8-15Z\"/></svg><span>Your taste</span></a><a href=\"#accuracy\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M4 20V10m8 10V4m8 16v-7\"/></svg><span>Accuracy</span></a><a href=\"#setup\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M4 7h16M4 17h16\"/><circle cx=\"9\" cy=\"7\" r=\"3\"/><circle cx=\"15\" cy=\"17\" r=\"3\"/></svg><span>Setup</span></a></nav></header>",
+      "css": ".ds-masthead{display:grid;grid-template-columns:minmax(0,1fr) auto auto;column-gap:28px;padding:22px 28px 0;background:var(--rail,#331c2a);color:var(--rail-ink,#fff3dc)}.ds-wordmark{display:flex;align-items:center;gap:11px;min-height:44px;width:fit-content;color:inherit;font:500 1.85rem/1 var(--font-display,Fraunces,Georgia,serif);letter-spacing:-.03em;text-decoration:none;white-space:nowrap}.ds-wordmark:hover{color:var(--record-label,#eec36d)}.ds-record{width:36px;height:36px;flex:none}.ds-service,.ds-theme{display:flex;align-items:center;gap:8px;color:var(--rail-muted,#d9bfcc);font:500 .75rem/1.55 var(--font-text,\"DM Sans\",\"Helvetica Neue\",sans-serif)}.ds-masthead select{min-height:44px;padding:7px 24px 7px 10px;border:1px solid var(--rail-active,#593247);border-radius:6px;background:var(--rail,#331c2a);color:var(--rail-ink,#fff3dc);font:400 .75rem/1.55 var(--font-text,\"DM Sans\",\"Helvetica Neue\",sans-serif)}.ds-nav{grid-column:1/-1;display:flex;gap:30px;margin-top:22px;border-top:1px solid var(--rail-active,#593247)}.ds-nav a{position:relative;display:flex;align-items:center;gap:9px;min-height:53px;padding:12px 0;flex-shrink:0;color:var(--rail-muted,#d9bfcc);font:400 .875rem/1.55 var(--font-text,\"DM Sans\",\"Helvetica Neue\",sans-serif);text-decoration:none;border-radius:0}.ds-nav a:nth-child(4){margin-left:auto}.ds-nav a:hover{color:var(--rail-ink,#fff3dc)}.ds-nav a[aria-current=page]{color:var(--rail-current,#eec36d);font-weight:600}.ds-nav a[aria-current=page]::after{content:\"\";position:absolute;bottom:0;left:0;right:0;height:3px;background:var(--rail-current,#eec36d)}.ds-masthead :focus-visible{outline:3px solid var(--rail-ink,#fff3dc);outline-offset:4px}.ds-nav svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}@media(max-width:760px){.ds-masthead{padding:16px 18px 0;gap:0 10px}.ds-wordmark{font-size:1.6rem}.ds-record{width:30px;height:30px}.ds-service,.ds-theme{font-size:0}.ds-masthead select{font-size:.6875rem;padding:6px 8px;max-width:99px}.ds-nav{gap:26px;overflow-x:auto;margin-top:16px;scrollbar-width:none}.ds-nav a{min-height:50px;font-size:.8125rem;padding:10px 0}.ds-nav a:nth-child(4){margin-left:0}.ds-nav svg{display:none}}@media(max-width:420px){.ds-wordmark{font-size:1.4rem;gap:8px}.ds-record{width:27px;height:27px}.ds-theme select{max-width:72px}}"
     },
     {
       "name": "Picked artist chip",
@@ -840,49 +856,49 @@
       "name": "Starting-point area",
       "kind": "card",
       "refersTo": "starting-point",
-      "description": "A recessed summary of the listener’s picks, without a card shadow.",
+      "description": "A raised, shadow-free summary of the listener’s picks.",
       "html": "<aside class=\"ds-starting\" aria-labelledby=\"ds-starting-heading\"><h2 id=\"ds-starting-heading\">Your starting point</h2><p>A little of what you love. A way into something new.</p><p class=\"ds-starting-count\">3 favourites picked</p></aside>",
-      "css": ".ds-starting{background:var(--paper-sunk,#f0e9de);color:var(--ink,#30252a);border-radius:var(--radius,12px);padding:26px 24px;font:400 .875rem/1.55 var(--font-text,\"DM Sans\",\"Helvetica Neue\",sans-serif)}.ds-starting h2{font:500 1.5rem/1.2 var(--font-display,Fraunces,Georgia,serif);margin:0 0 10px}.ds-starting p{margin:0;color:var(--muted,#6d6065)}.ds-starting .ds-starting-count{font-size:.8125rem;font-weight:600;margin:25px 0 12px;padding-bottom:12px;border-bottom:1px solid var(--line-strong,#928087);color:var(--ink,#30252a)}"
+      "css": ".ds-starting{background:var(--paper-raised,#fffdf7);color:var(--ink,#30252a);border-radius:12px;padding:28px;font:400 .875rem/1.55 var(--font-text,\"DM Sans\",\"Helvetica Neue\",sans-serif)}.ds-starting h2{font:500 1.5rem/1.2 var(--font-display,Fraunces,Georgia,serif);margin:0 0 10px}.ds-starting p{margin:0;color:var(--muted,#6d6065)}.ds-starting .ds-starting-count{font-size:.8125rem;font-weight:600;margin:25px 0 12px;padding-bottom:12px;border-bottom:1px solid var(--line-strong,#928087);color:var(--ink,#30252a)}"
     },
     {
-      "name": "Artist choice",
-      "kind": "button",
-      "refersTo": "artist-choice",
-      "description": "A flat artist selector with a rose selection wash, wine text, and Pick/Picked marker.",
-      "html": "<button class=\"ds-artist-choice\" aria-pressed=\"true\"><span class=\"ds-artist-name\">Nina Simone</span><span class=\"ds-artist-mark\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"m5 12 4 4L19 6\"/></svg>Picked</span></button>",
-      "css": ".ds-artist-choice{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:9px 15px;border:1px solid var(--line-strong,#928087);border-radius:8px;background:transparent;color:var(--ink,#30252a);font:500 .875rem/1.3 var(--font-text,\"DM Sans\",\"Helvetica Neue\",sans-serif);text-align:center;cursor:pointer;transition:background-color 160ms var(--ease,cubic-bezier(.16,1,.3,1)),border-color 160ms var(--ease,cubic-bezier(.16,1,.3,1));display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:7px;min-height:93px;padding:14px 4px;border-width:0 0 1px;border-color:var(--line,#ded3cf);border-radius:0;text-align:left}.ds-artist-choice:hover{background:var(--paper-sunk,#f0e9de);border-color:var(--ink-2,#57494e)}.ds-artist-choice:focus-visible{outline:3px solid var(--focus,#a64b69);outline-offset:4px;border-radius:4px}.ds-artist-choice:disabled{opacity:.5;cursor:not-allowed}@media(prefers-reduced-motion:reduce){.ds-artist-choice{transition:none}}.ds-artist-choice[aria-pressed=true]{color:var(--accent,#7a304b);background:var(--selection,#f3e4ea);border-color:var(--line,#ded3cf)}.ds-artist-name{font-size:.9375rem;font-weight:600;line-height:1.3}.ds-artist-mark{display:inline-flex;align-items:center;gap:5px;font-size:.75rem;font-weight:400}.ds-artist-mark svg{width:13px;height:13px;stroke:currentColor;stroke-width:1.7;fill:none;stroke-linecap:round;stroke-linejoin:round}@media(max-width:650px){.ds-artist-choice{min-height:86px}}"
+      "name": "Focused weekly artist",
+      "kind": "card",
+      "refersTo": "listening-card",
+      "description": "The one active artist, with familiar connection, playback state, immediate choices, and native evidence disclosure. Preview copy is illustrative.",
+      "html": "<article class=\"ds-listening\"><div class=\"ds-artist-heading\"><h2>Example artist</h2><span aria-label=\"Selection 1\">01</span></div><p class=\"ds-tags\">Illustrative component preview</p><span class=\"ds-slot\">Close match</span><div class=\"ds-connection\"><h3>The connection</h3><p>From your love of <b>your favourite artist</b>.</p></div><div class=\"ds-listen-actions\"><span>No preview available</span><a href=\"#example-service\">Open in Spotify <svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M7 17 17 7M7 7h10v10\"/></svg></a><button class=\"ds-more-songs\" aria-expanded=\"false\">More songs</button></div><div class=\"ds-decisions\" role=\"group\" aria-label=\"Your choice for Example artist\"><button class=\"ds-keep\">Keep</button><button>Pass</button><button class=\"ds-soft\">Know them</button><button class=\"ds-soft\">Not now</button></div><p class=\"ds-help\">Keep what you love. “Not now” sets it aside for four weeks.</p><details class=\"ds-evidence\"><summary>Why this match</summary><p>Supporting and opposing signals appear here with signed effects.</p></details></article>",
+      "css": ".ds-listening{padding:34px 36px 24px;min-height:425px;border-radius:12px;background:var(--paper-raised,#fffdf7);color:var(--ink,#30252a);font:400 1rem/1.55 var(--font-text,\"DM Sans\",\"Helvetica Neue\",sans-serif)}.ds-artist-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:20px}.ds-artist-heading h2{font:500 2.75rem/1.08 var(--font-display,Fraunces,Georgia,serif);letter-spacing:-.03em;max-width:17ch;margin:0;overflow-wrap:anywhere}.ds-artist-heading>span{font-size:2.375rem;line-height:1.1;color:var(--line-strong,#928087);font-variant-numeric:tabular-nums}.ds-tags{font-size:.8125rem;line-height:1.65;margin:12px 0 16px;color:var(--muted,#6d6065)}.ds-slot{display:inline-block;border-radius:3px;padding:3px 8px;background:var(--sticker,#f4dfa5);color:var(--sticker-ink,#634514);font-size:.6875rem}.ds-connection{margin-top:28px;padding-top:22px;border-top:1px solid var(--line,#ded3cf)}.ds-connection h3{font:600 .8125rem/1.4 var(--font-text,\"DM Sans\",\"Helvetica Neue\",sans-serif);margin:0 0 8px}.ds-connection p{font-size:.9375rem;line-height:1.7;max-width:60ch;color:var(--ink-2,#57494e);margin:0}.ds-listen-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:22px;font-size:.8125rem;color:var(--muted,#6d6065)}.ds-listen-actions a{display:inline-flex;gap:8px;align-items:center;min-height:44px;color:var(--accent,#7a304b);text-underline-offset:4px}.ds-listen-actions svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}.ds-listening button{min-height:44px;padding:9px 15px;border:1px solid var(--line-strong,#928087);border-radius:8px;background:transparent;color:var(--ink,#30252a);font:500 .875rem/1.3 var(--font-text,\"DM Sans\",\"Helvetica Neue\",sans-serif);cursor:pointer;transition:background-color 160ms var(--ease,cubic-bezier(.16,1,.3,1)),border-color 160ms var(--ease,cubic-bezier(.16,1,.3,1))}.ds-listening button:hover{background:var(--paper-sunk,#f0e9de);border-color:var(--ink-2,#57494e)}.ds-listening .ds-more-songs{border-color:transparent;color:var(--accent,#7a304b);font-size:.8125rem;padding-left:0}.ds-decisions{display:flex;gap:8px;margin-top:18px;padding-top:20px;border-top:1px solid var(--line,#ded3cf)}.ds-decisions .ds-keep{min-width:110px;padding:11px 20px;border-color:transparent;background:var(--accent,#7a304b);color:var(--button-ink,#fffdf7);font-weight:600}.ds-decisions .ds-keep:hover{background:var(--accent-hover,#5e2039)}.ds-decisions .ds-soft{border-color:transparent;color:var(--muted,#6d6065)}.ds-help{font-size:.6875rem;color:var(--muted,#6d6065);margin:10px 0 14px}.ds-evidence{border-top:1px solid var(--line,#ded3cf);padding-top:4px;color:var(--ink-2,#57494e);font-size:.75rem}.ds-evidence summary{min-height:44px;padding:12px 0;cursor:pointer}.ds-listening :focus-visible{outline:3px solid var(--focus,#a64b69);outline-offset:4px;border-radius:4px}.ds-listening button:disabled{opacity:.5;cursor:not-allowed}@media(max-width:760px){.ds-listening{padding:22px 20px 18px;min-height:0}.ds-artist-heading h2{font-size:2rem}.ds-artist-heading>span{font-size:1.875rem}.ds-tags{font-size:.75rem;margin-top:8px}.ds-connection{margin-top:16px;padding-top:16px}.ds-connection p{font-size:.875rem;line-height:1.6}.ds-listen-actions{margin-top:16px;gap:4px 12px}.ds-listen-actions>span{flex-basis:100%}.ds-decisions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 8px;margin-top:12px;padding-top:16px}.ds-decisions button{width:100%}.ds-decisions button:nth-child(-n+2){min-height:46px}}@media(prefers-reduced-motion:reduce){.ds-listening button{transition:none}}"
     },
     {
-      "name": "Discovery row",
+      "name": "Numbered listening queue",
       "kind": "custom",
-      "refersTo": "recommendation-row",
-      "description": "A music-first row with familiar connections and an amber candidate-percentile label. Illustrative preview content only.",
-      "html": "<article class=\"ds-rec\"><div class=\"ds-rec-rank\">01</div><div><h3 class=\"ds-rec-name\">Example artist</h3><p class=\"ds-rec-tags\">Illustrative component preview</p><p class=\"ds-rec-why\">Because of <b>your picked artists</b> in your taste.</p></div><div class=\"ds-percentile\"><b>84</b><span>percentile</span></div></article>",
-      "css": ".ds-rec{display:grid;grid-template-columns:32px minmax(0,1fr) 80px;gap:16px;padding:26px 0;border-bottom:1px solid var(--line,#ded3cf);color:var(--ink,#30252a);font:400 1rem/1.55 var(--font-text,\"DM Sans\",\"Helvetica Neue\",sans-serif)}.ds-rec-rank{padding-top:7px;font-size:.8125rem;color:var(--muted,#6d6065);font-variant-numeric:tabular-nums}.ds-rec-name{font:500 1.875rem/1.15 var(--font-display,Fraunces,Georgia,serif);letter-spacing:-.025em;margin:0;overflow-wrap:anywhere}.ds-rec-tags{font-size:.75rem;color:var(--muted,#6d6065);margin:7px 0 12px}.ds-rec-why{font-size:.875rem;color:var(--ink-2,#57494e);margin:0 0 8px}.ds-rec-why b{font-weight:600;color:var(--ink,#30252a)}.ds-percentile{align-self:start;color:var(--sticker-ink,#634514);background:var(--sticker,#f4dfa5);border-radius:8px;padding:10px 12px;text-align:center}.ds-percentile b{font:500 1.4rem/1.1 var(--font-text,\"DM Sans\",\"Helvetica Neue\",sans-serif);font-variant-numeric:tabular-nums;display:block}.ds-percentile span{font-size:.625rem}@media(max-width:650px){.ds-rec{grid-template-columns:minmax(0,1fr) 66px;gap:10px;padding:24px 0}.ds-rec-rank{display:none}.ds-rec-name{font-size:1.625rem}.ds-percentile{padding:9px 6px}.ds-percentile span{font-size:.6875rem}}"
+      "refersTo": "queue-item",
+      "description": "Flat numbered entries distinguish the current artist from completed decisions using color plus text and symbols.",
+      "html": "<section class=\"ds-queue\"><div class=\"ds-queue-heading\"><h2>This week’s artists</h2><span>1 to discover</span></div><ol><li><button aria-current=\"true\"><span class=\"ds-queue-number\">01</span><span class=\"ds-queue-artist\">Example artist<small>Close match</small></span><span class=\"ds-queue-indicator\" aria-hidden=\"true\"></span></button></li><li><button disabled><span class=\"ds-queue-number\">02</span><span class=\"ds-queue-artist\">Another artist<small>Kept</small></span><span class=\"ds-queue-indicator\" aria-hidden=\"true\"><svg viewBox=\"0 0 24 24\"><path d=\"m5 12 4 4L19 6\"/></svg></span></button></li></ol></section>",
+      "css": ".ds-queue{font:400 .8125rem/1.55 var(--font-text,\"DM Sans\",\"Helvetica Neue\",sans-serif);color:var(--ink,#30252a)}.ds-queue-heading{display:flex;justify-content:space-between;align-items:center;gap:16px;padding-bottom:15px;border-bottom:1px solid var(--line,#ded3cf)}.ds-queue-heading h2{font:600 .875rem/1.4 var(--font-text,\"DM Sans\",\"Helvetica Neue\",sans-serif);margin:0}.ds-queue-heading>span{font-size:.6875rem;color:var(--muted,#6d6065)}.ds-queue ol{list-style:none;padding:0;margin:0;max-height:590px;overflow-y:auto;scrollbar-width:thin}.ds-queue li{border-bottom:1px solid var(--line,#ded3cf)}.ds-queue button{display:grid;grid-template-columns:24px minmax(0,1fr) 10px;gap:10px;width:100%;min-height:58px;padding:10px 12px;border:0;border-radius:0;background:transparent;color:var(--ink,#30252a);font:400 .8125rem/1.3 var(--font-text,\"DM Sans\",\"Helvetica Neue\",sans-serif);text-align:left;cursor:pointer;transition:background-color 160ms var(--ease,cubic-bezier(.16,1,.3,1))}.ds-queue button:hover{background:var(--paper-sunk,#f0e9de)}.ds-queue button[aria-current=true]{background:var(--selection,#f3e4ea);color:var(--accent,#7a304b)}.ds-queue button:disabled{opacity:.65;cursor:default}.ds-queue button:focus-visible{outline:3px solid var(--focus,#a64b69);outline-offset:4px;border-radius:4px}.ds-queue-number{font-size:.6875rem;font-variant-numeric:tabular-nums;color:var(--muted,#6d6065)}.ds-queue-artist{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}.ds-queue-artist small{display:block;font-size:.6875rem;font-weight:400;margin-top:4px;color:var(--muted,#6d6065)}.ds-queue-indicator{width:7px;height:7px}.ds-queue [aria-current=true] .ds-queue-indicator{border-radius:50%;background:var(--accent,#7a304b)}.ds-queue-indicator svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}@media(max-width:760px){.ds-queue ol{max-height:310px}.ds-queue button{min-height:59px}}@media(prefers-reduced-motion:reduce){.ds-queue button{transition:none}}"
     },
     {
-      "name": "Evidence disclosure",
+      "name": "Saved-choice filter index",
       "kind": "custom",
-      "refersTo": "evidence-details",
-      "description": "Native disclosure for detailed evidence; the table carries signed effects in text. Illustrative values only.",
-      "html": "<details class=\"ds-why\"><summary>Why this match <span>2 supporting signals</span></summary><div class=\"ds-evidence\"><p>Illustrative component preview</p><svg class=\"ds-meter\" width=\"240\" height=\"18\" viewBox=\"0 0 240 18\" role=\"img\" aria-label=\"Illustrative evidence: 2 signals for, 0 against, net 0.80\"><rect class=\"ds-track\" x=\"0\" y=\"3\" width=\"240\" height=\"12\" rx=\"4\"/><path class=\"ds-pos\" d=\"M121 3h58v12h-58Z\"/><path class=\"ds-pos\" d=\"M181 3h14q4 0 4 4v4q0 4-4 4h-14Z\"/><line class=\"ds-axis\" x1=\"120\" x2=\"120\" y1=\"0\" y2=\"18\"/><line class=\"ds-net\" x1=\"200\" x2=\"200\" y1=\"0\" y2=\"18\"/></svg><table><thead><tr><th>Signal (standardised)</th><th>Effect</th></tr></thead><tbody><tr><td>Similar artists</td><td>+0.60</td></tr><tr><td>Shared taste</td><td>+0.20</td></tr><tr><td>Net score</td><td>+0.80</td></tr></tbody></table></div></details>",
-      "css": ".ds-why{font:400 .75rem/1.55 var(--font-text,\"DM Sans\",\"Helvetica Neue\",sans-serif);color:var(--ink-2,#57494e);margin-top:6px}.ds-why summary{min-height:32px;padding:4px 0;cursor:pointer}.ds-why summary:focus-visible{outline:3px solid var(--focus,#a64b69);outline-offset:4px;border-radius:4px}.ds-why summary span{margin-left:10px;color:var(--muted,#6d6065)}.ds-why[open]>summary{margin-bottom:8px}.ds-evidence{max-width:600px;overflow:auto;margin:12px 0 18px}.ds-evidence table{width:100%;min-width:260px;border-collapse:collapse;font-size:.8125rem}.ds-evidence th,.ds-evidence td{padding:12px 14px 12px 0;border-bottom:1px solid var(--line,#ded3cf);text-align:left}.ds-evidence th{font-weight:500;color:var(--muted,#6d6065)}.ds-evidence td:last-child,.ds-evidence th:last-child{text-align:right}.ds-evidence td:last-child{font:.75rem/1.55 var(--font-mono,ui-monospace,\"SFMono-Regular\",Menlo,monospace);font-variant-numeric:tabular-nums}@media(max-width:650px){.ds-why summary{min-height:44px}.ds-why summary span{display:none}}.ds-meter{display:block;max-width:100%;height:auto;margin:12px 0 18px}.ds-track{fill:var(--paper-sunk,#f0e9de)}.ds-pos{fill:var(--pos,#27715e)}.ds-axis{stroke:var(--line-strong,#928087);stroke-width:1}.ds-net{stroke:var(--ink,#30252a);stroke-width:2}"
+      "refersTo": "saved-choice-filter",
+      "description": "A flat search, native verdict selector, and three scope controls above saved choices; counts remain readable and live.",
+      "html": "<form class=\"ds-taste-filters\" role=\"search\" aria-label=\"Find saved choices\"><div class=\"ds-taste-search\"><label for=\"ds-choice-search\">Find an artist or song</label><input id=\"ds-choice-search\" type=\"search\" placeholder=\"Search your choices…\"></div><div class=\"ds-taste-verdict\"><label for=\"ds-choice-verdict\">Your choice</label><select id=\"ds-choice-verdict\"><option>Any choice</option><option>Liked</option><option>Not for me</option><option>Already know</option></select></div><div class=\"ds-taste-scopes\" role=\"group\" aria-label=\"Type of saved choice\"><button type=\"button\" aria-pressed=\"true\">All choices</button><button type=\"button\" aria-pressed=\"false\">Artists</button><button type=\"button\" aria-pressed=\"false\">Songs</button></div><p class=\"ds-choice-count\" role=\"status\" aria-live=\"polite\">Showing 30 of 48 saved choices.</p></form>",
+      "css": ".ds-taste-filters{display:grid;grid-template-columns:minmax(0,1fr) minmax(150px,190px);gap:16px 24px;margin-top:24px;padding-bottom:20px;border-bottom:1px solid var(--line-strong,#928087);font:400 1rem/1.55 var(--font-text,\"DM Sans\",\"Helvetica Neue\",sans-serif);color:var(--ink,#30252a)}.ds-taste-search,.ds-taste-verdict{display:grid;gap:6px;min-width:0}.ds-taste-filters label{font-size:.875rem;font-weight:600}.ds-taste-filters input,.ds-taste-filters select{width:100%;min-width:0;min-height:46px;padding:10px 14px;border:1px solid var(--line-strong,#928087);border-radius:8px;background:var(--paper-raised,#fffdf7);color:var(--ink,#30252a);font:400 1rem/1.55 var(--font-text,\"DM Sans\",\"Helvetica Neue\",sans-serif)}.ds-taste-filters input{max-width:420px;caret-color:var(--accent,#7a304b)}.ds-taste-filters input::placeholder{color:var(--muted,#6d6065)}.ds-taste-scopes{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.ds-taste-scopes button{min-height:44px;padding:8px 14px;border:1px solid var(--line-strong,#928087);border-radius:8px;background:transparent;color:var(--ink,#30252a);font:500 .875rem/1.3 var(--font-text,\"DM Sans\",\"Helvetica Neue\",sans-serif);cursor:pointer;transition:background-color 160ms var(--ease,cubic-bezier(.16,1,.3,1)),border-color 160ms var(--ease,cubic-bezier(.16,1,.3,1))}.ds-taste-scopes button:hover{background:var(--paper-sunk,#f0e9de);border-color:var(--ink-2,#57494e)}.ds-taste-scopes button[aria-pressed=true]{background:var(--selection,#f3e4ea);border-color:var(--accent,#7a304b);color:var(--accent,#7a304b)}.ds-taste-filters :focus-visible{outline:3px solid var(--focus,#a64b69);outline-offset:4px;border-radius:4px}.ds-choice-count{align-self:center;margin:0;text-align:right;font-size:.875rem;color:var(--muted,#6d6065);font-variant-numeric:tabular-nums}@media(max-width:650px){.ds-taste-filters{grid-template-columns:minmax(0,1fr);gap:16px}.ds-taste-verdict{grid-template-columns:auto minmax(0,1fr);align-items:center;gap:16px}.ds-taste-scopes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}.ds-taste-scopes button{padding-inline:8px}.ds-choice-count{text-align:left}}@media(prefers-reduced-motion:reduce){.ds-taste-scopes button{transition:none}}"
     }
   ],
   "narrative": {
     "northStar": "The independent listening journal",
-    "overview": "Sideband takes its colors from record sleeves and independent music publishing: an ivory work surface, a deep aubergine navigation rail, wine-colored actions, and amber labels. Fraunces gives music names and page titles an editorial voice; DM Sans keeps controls, explanations, and dense data direct. Dark mode uses aubergine surfaces and pale rose accents while retaining the amber wayfinding.\n\nMusic names, familiar connections, and listening actions establish the identity. Thin dividers and tonal areas organize the workspace; photographic artist results appear only when provided by the lookup service. The interface does not invent album artwork. Native controls and compact disclosures keep the product approachable without hiding its evidence.",
+    "overview": "Sideband takes its colors from record sleeves and independent music publishing: an ivory work surface, a deep aubergine masthead, wine-colored actions, and amber wayfinding. Fraunces gives music names and page titles an editorial voice; DM Sans keeps controls, explanations, and dense data direct. Dark mode uses aubergine surfaces and pale rose accents while retaining the amber wayfinding.\n\nMusic names, familiar connections, and listening actions establish the identity. One raised listening surface anchors the weekly workspace; numbered selections and collections remain flat. Thin dividers, native controls, and compact disclosures keep the product approachable without hiding its evidence. Artist photographs appear only when supplied by lookup results; the interface does not invent album artwork.",
     "keyCharacteristics": [
-      "An aubergine rail with amber current-state labels, retaining all six destinations on mobile.",
-      "Editorial music typography paired with plain, compact controls.",
-      "Record-sleeve ivory surfaces, wine ink, thin dividers, and restrained floating shadows.",
-      "Readable light and dark themes with visible keyboard focus.",
-      "Supporting evidence revealed through native disclosures."
+      "A horizontal aubergine masthead with six destinations, amber active underlines, and shared service and appearance controls.",
+      "One artist in focus beside a numbered weekly queue, followed by keepers and reversible decisions.",
+      "Editorial music typography paired with compact native controls.",
+      "Ivory and aubergine surface tones, thin dividers, and shadows reserved for floating content.",
+      "Visible keyboard focus, textual state labels, and progressively disclosed evidence."
     ],
     "rules": [
       {
         "name": "The Signal Color Rule",
-        "body": "Reserve green for positive evidence and liked feedback. Use wine and rose for selections, actions, and taste data; use amber for current navigation, the Sideband mark, and percentile labels.",
+        "body": "Reserve green for positive evidence and liked feedback. Use wine and rose for selections, actions, and taste data; use amber for current navigation and compact information labels.",
         "section": "colors"
       },
       {
@@ -892,27 +908,27 @@
       },
       {
         "name": "The Floating Surface Rule",
-        "body": "Keep ordinary sections and recommendation rows flat. Use the shared shadow for content that floats above the workspace: tooltips, toasts, and the mobile discovery action.",
+        "body": "Keep ordinary sections, queues, and recommendation rows flat. Use the shared shadow for tooltips, toasts, and the mobile discovery action.",
         "section": "elevation"
       }
     ],
     "dos": [
-      "Do use the existing semantic CSS variables so theme changes apply to every component.",
-      "Do keep green limited to positive evidence and liked feedback; use the wine accent for taste bars and the rose wash for selections.",
-      "Do keep artist names and familiar connections prominent, with supporting model detail in disclosures.",
-      "Do retain visible focus, native controls, textual state labels, and reduced-motion behavior.",
-      "Do keep feedback in its existing row with a saved message and Undo until the listener refreshes.",
-      "Do preserve all six navigation destinations and the fixed discovery action on small Setup screens.",
-      "Do label candidate percentile, provisional estimates, and synthetic demo evidence distinctly."
+      "Do use semantic CSS variables so light and dark themes apply to every component.",
+      "Do reserve green for positive evidence and liked feedback, wine for taste data, and rose for selections.",
+      "Do keep music names, familiar connections, and the next listening action prominent.",
+      "Do preserve all six navigation destinations and shared service and appearance controls.",
+      "Do keep weekly choices reversible through Sorted this week and ranked ratings reversible in their rows.",
+      "Do retain native controls, visible focus, textual state labels, and reduced-motion behavior.",
+      "Do keep queue and collection layouts flat around the single focused weekly artist."
     ],
     "donts": [
-      "Don't substitute a generic green brand palette for Sideband's record-sleeve ivory, wine, aubergine, and amber identity.",
-      "Don't add fabricated artwork, testimonials, listening counts, or accuracy claims.",
-      "Don't turn ordinary recommendation rows into stacked raised cards.",
-      "Don't use color alone to communicate selected artists, ratings, errors, or signal direction.",
+      "Don't substitute a generic green palette for the established ivory, wine, aubergine, and amber identity.",
+      "Don't apply the logo's coral and pink brights to interface controls.",
+      "Don't invent artwork, testimonials, listening counts, or accuracy claims.",
+      "Don't use color alone for selections, verdicts, errors, or signal direction.",
+      "Don't turn a candidate percentile into a like probability or make unavailable previews appear playable.",
       "Don't replace native selects, ranges, radio buttons, or disclosure semantics with decorative imitations.",
-      "Don't introduce external font requests; use the local font files and retain their licenses.",
-      "Don't change a candidate percentile into a like probability or present unavailable previews as playable."
+      "Don't introduce external font requests or remove the local font licenses and logo provenance."
     ]
   }
 }

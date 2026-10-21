@@ -1,22 +1,34 @@
-# Listening space
+# Listening desk
 
-Mode: Operate.
-Scope: all six Sideband routes; full interface redesign on existing engine.
+Mode: Operate. Scope: all existing Sideband routes, with a substantial weekly-workflow redesign.
 
 ## Direction contract
 
-An independent listening journal drawn from record sleeves and liner notes: an ivory work surface, deep aubergine navigation rail, wine-colored actions, amber current-destination and percentile labels, locally served Fraunces for music names and page titles, and DM Sans for task controls and explanations. Dark mode uses aubergine surfaces and pale rose accents for evening listening. Generic selections use a rose wash, taste bars use wine, and green is reserved for positive evidence and liked rows. Sideband has a distinct music identity alongside Milo’s chalk, carbon, and burnt-orange training identity. No invented album artwork. The signature is the explicit connection between each discovery and artists the listener knows, with signal detail unfolded as liner notes.
+THESIS: A finite weekly selection deserves attentive listening. One artist is in focus alongside a numbered queue; saved music sits directly below. This replaces the long feed of repeated controls and keeps the existing engine and routes.
 
-First viewport: a familiar navigation shell, a prominent artist search and browsable artist names, and a persistent desktop starting-point summary. On recommendations, the listening list must arrive promptly; tuning and model details are subordinate. Mobile keeps all six destinations available and a reachable find-music action. Rating leaves the item in place with Undo, preventing the listener from losing context.
+OWN-WORLD: Preserve the confirmed ivory, wine, aubergine and amber record-sleeve identity, record mark and locally served Fraunces/DM Sans. A narrow aubergine masthead, quiet inline navigation, broad music names, numbered selections and explicit familiar-artist connections carry the character. One raised listening surface; flat queue and collections.
 
-Success: select favorites without needing an export; listen and rate; understand recommendations on demand; find secondary settings and accurate data states. Keep all API, route, persistence, and import contracts.
+STORY: Follow a familiar artist into an unfamiliar one. Listen through a verified preview or the preferred service, Keep or Pass, and move on. Review or undo in the same workspace. Search saved decisions later.
+
+FIRST VIEWPORT: Horizontal product navigation above a short weekly introduction and date. Progress precedes a two-column workspace: artist, connection, playback and decisions left; ten-item selectable queue right. Mobile stacks the artist before the queue. Selection and next/previous buttons preserve the listener’s place across reloads. No invented artwork.
+
+FORM: Personal listening desk, grounded candidate 6; selected independently under the user’s explicit instruction to make one decision with no option round. Alternatives privately considered: record-shop listening notes, radio programme guide, release catalog, fan-zine review, festival programme, personal listening desk, library listening collection. The chosen system prioritizes a task over a visual metaphor. seed: unavailable. The installed launcher returned the direction assignment and live catalog but predates the documented 16-character SEED REFERENCE and --check-seed interface. No reference is fabricated.
+
+FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
 
 ## Reference judgment
 
-Apple, Stripe and Linear homepages were opened and visually inspected on 2026-10-13. Adopt Apple's clear spacing and focus, Stripe's restrained assignment of color to purpose, and Linear's stable wayfinding and compact controls. Avoid copying marketing hero layouts into a working music app.
+Live browser screenshots and official content reviewed: Apple Music, Stripe Billing, Linear Features/Build, Bandcamp Daily, NTS. Adopt focused listening hierarchy, explanations by actions, compact states, artist-led context and finite numbered selections. Linear examples were public product examples, not an authenticated session. No layouts or palettes copied. The Impeccable catalog was retrieved; mascot roster, consumer card stack, botanical folio, zoo map and orienteering diagram directions do not improve music clarity enough to replace the established brand. Their useful disciplines are finite state visibility, comfortable controls and clear active-position marking.
 
-The user explicitly delegated decisions and prohibited alternatives/choice rounds. This session therefore builds one code-led direction. Impeccable's direction prompt was consulted; the committed world is grounded in independent music editorial design. No comparison boards were generated.
+## Success criteria and assumptions
 
-## Verification
+- Returning listeners can select, listen, decide and undo without a long scroll or loss of focus.
+- New listeners can choose favourites and build a map with no account or history import.
+- Keepers and saved ratings remain easy to revisit, including large lists.
+- Every service link follows one shared preference; unavailable playback remains honest.
+- Phone sessions are assumed to be a few minutes; desktop may stay open while listening. This is inferred from existing workflows.
+- Preserve all API, storage, recommendation, backup, import, privacy and hosting contracts.
 
-One combined desktop/mobile review, one coordinated correction, and a confirmation pass. Test existing engine behavior separately from visual QA. Label synthetic demo data. Record unavailable checks honestly.
+## Verification boundary
+
+One combined desktop/mobile critique, accessibility/behavior audit and polish review; one coordinated fix batch and confirmation. Existing synthetic demo remains labeled. Use isolated data; no production listener data is changed.

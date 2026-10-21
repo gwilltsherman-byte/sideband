@@ -54,7 +54,7 @@ colors:
 typography:
   display:
     fontFamily: "Fraunces,Georgia,serif"
-    fontSize: "2.625rem"
+    fontSize: "2.375rem"
     fontWeight: 500
     lineHeight: 1.2
     letterSpacing: "-.03em"
@@ -71,10 +71,16 @@ typography:
     lineHeight: 1.2
   artist:
     fontFamily: "Fraunces,Georgia,serif"
-    fontSize: "1.875rem"
+    fontSize: "1.75rem"
     fontWeight: 500
     lineHeight: 1.15
     letterSpacing: "-.025em"
+  listening-artist:
+    fontFamily: "Fraunces,Georgia,serif"
+    fontSize: "2.75rem"
+    fontWeight: 500
+    lineHeight: 1.08
+    letterSpacing: "-.03em"
   body:
     fontFamily: "\"DM Sans\",\"Helvetica Neue\",sans-serif"
     fontSize: "1rem"
@@ -92,7 +98,7 @@ typography:
     lineHeight: 1.3
   navigation:
     fontFamily: "\"DM Sans\",\"Helvetica Neue\",sans-serif"
-    fontSize: ".9375rem"
+    fontSize: ".875rem"
     fontWeight: 400
     lineHeight: 1.55
   table-number:
@@ -101,8 +107,13 @@ typography:
     fontWeight: 400
     lineHeight: 1.55
 rounded:
+  square: "0px"
+  label: "3px"
+  percentile: "4px"
+  masthead-control: "6px"
   control: "8px"
-  radius: "12px"
+  radius: "10px"
+  surface: "12px"
   radius-pill: "999px"
 spacing:
   s1: "4px"
@@ -144,21 +155,21 @@ components:
   navigation-item:
     textColor: "{colors.rail-muted}"
     typography: "{typography.navigation}"
-    rounded: "{rounded.control}"
-    padding: "10px 16px"
+    rounded: "{rounded.square}"
+    padding: "12px 0"
   navigation-item-current:
-    backgroundColor: "{colors.rail-current}"
-    textColor: "{colors.rail-current-ink}"
+    backgroundColor: "transparent"
+    textColor: "{colors.rail-current}"
   pick-chip:
     backgroundColor: "{colors.paper-raised}"
     textColor: "{colors.ink}"
     rounded: "{rounded.radius-pill}"
     padding: "8px 12px"
   starting-point:
-    backgroundColor: "{colors.paper-sunk}"
+    backgroundColor: "{colors.paper-raised}"
     textColor: "{colors.ink}"
-    rounded: "{rounded.radius}"
-    padding: "26px 24px"
+    rounded: "{rounded.surface}"
+    padding: "28px"
   artist-choice:
     backgroundColor: "transparent"
     textColor: "{colors.ink}"
@@ -174,11 +185,29 @@ components:
   match-percentile:
     backgroundColor: "{colors.sticker}"
     textColor: "{colors.sticker-ink}"
-    rounded: "{rounded.control}"
+    rounded: "{rounded.percentile}"
     padding: "10px 12px"
   button-pressed:
     backgroundColor: "{colors.selection}"
     textColor: "{colors.accent}"
+  listening-card:
+    backgroundColor: "{colors.paper-raised}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.surface}"
+    padding: "34px 36px 24px"
+  queue-item:
+    backgroundColor: "transparent"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.square}"
+    padding: "10px 12px"
+  queue-item-current:
+    backgroundColor: "{colors.selection}"
+    textColor: "{colors.accent}"
+  saved-choice-filter:
+    backgroundColor: "transparent"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.control}"
+    padding: "8px 14px"
 ---
 
 # Design System: Sideband
@@ -187,176 +216,182 @@ components:
 
 **Creative North Star: "The independent listening journal"**
 
-Sideband takes its colors from record sleeves and independent music publishing: an ivory work surface, a deep aubergine navigation rail, wine-colored actions, and amber labels. Fraunces gives music names and page titles an editorial voice; DM Sans keeps controls, explanations, and dense data direct. Dark mode uses aubergine surfaces and pale rose accents while retaining the amber wayfinding.
+Sideband takes its colors from record sleeves and independent music publishing: an ivory work surface, a deep aubergine masthead, wine-colored actions, and amber wayfinding. Fraunces gives music names and page titles an editorial voice; DM Sans keeps controls, explanations, and dense data direct. Dark mode uses aubergine surfaces and pale rose accents while retaining the amber wayfinding.
 
-Music names, familiar connections, and listening actions establish the identity. Thin dividers and tonal areas organize the workspace; photographic artist results appear only when provided by the lookup service. The interface does not invent album artwork. Native controls and compact disclosures keep the product approachable without hiding its evidence.
+Music names, familiar connections, and listening actions establish the identity. One raised listening surface anchors the weekly workspace; numbered selections and collections remain flat. Thin dividers, native controls, and compact disclosures keep the product approachable without hiding its evidence. Artist photographs appear only when supplied by lookup results; the interface does not invent album artwork.
 
-This document records the implemented system in `musicfinder/web/style.css`, `musicfinder/web/index.html`, and `musicfinder/web/app.js`. The frontmatter is the portable token layer; the stylesheet implements these values. Theme overrides use `dark-` keys here because the source reassigns the same CSS variables. `PRODUCT.md` holds product constraints; `.impeccable/surfaces/listening-space.md` holds the redesign direction and surface strategy. `.impeccable/design.json` extends this document with motion, breakpoints, shadows, and component previews.
+The frontmatter records the implemented tokens. `musicfinder/web/style.css` supplies the shared base; `listening-desk.css` and `taste-filters.css` load afterward and govern the final shell, weekly workspace, and saved-choice filters. `index.html` and `app.js` supply the components and behavior. `PRODUCT.md` holds product constraints, `.impeccable/surfaces/listening-space.md` holds surface strategy, and `.impeccable/design.json` adds preview snippets, motion, breakpoints, and shadows.
 
 **Key Characteristics:**
 
-- An aubergine rail with amber current-state labels, retaining all six destinations on mobile.
-- Editorial music typography paired with plain, compact controls.
-- Record-sleeve ivory surfaces, wine ink, thin dividers, and restrained floating shadows.
-- Readable light and dark themes with visible keyboard focus.
-- Supporting evidence revealed through native disclosures.
+- A horizontal aubergine masthead with six destinations, amber active underlines, and shared service and appearance controls.
+- One artist in focus beside a numbered weekly queue, followed by keepers and reversible decisions.
+- Editorial music typography paired with compact native controls.
+- Ivory and aubergine surface tones, thin dividers, and shadows reserved for floating content.
+- Visible keyboard focus, textual state labels, and progressively disclosed evidence.
 
 ## Colors
 
-Ivory, wine, aubergine, and amber connect Sideband to record sleeves, printed liner notes, and record labels. Their roles support a listening journal: paper holds the music, wine identifies actions, and amber marks a destination or compact piece of information. This identity is distinct from Milo's chalk, carbon, and burnt-orange training palette.
+Ivory, wine, aubergine, and amber connect Sideband to record sleeves, liner notes, and record labels. The palette remains distinct from Milo's chalk, carbon, and burnt-orange training identity.
 
 ### Primary
 
-- **Wine accent** (`accent`, `accent-hover`): primary actions, text links, range controls, progress, and taste bars. The CSS `--button` variable aliases `--accent`. The dark theme uses pale rose for this same role.
-- **Aubergine rail** (`rail`, `rail-active`, `rail-ink`, `rail-muted`): the persistent navigation surface, its wine hover state, and readable foregrounds.
-- **Rose selection** (`selection`): pressed controls, selected artist choices, and the import drop-area hover. It is separate from the positive-feedback wash in both themes.
-- **Rose focus** (`focus`): the keyboard outline on work surfaces; the rail uses `rail-ink` for focus contrast.
+- **Wine accent** (`accent`, `accent-hover`): primary actions, links, range controls, progress, and taste bars. The CSS `--button` aliases `--accent`; dark mode uses pale rose for this role.
+- **Aubergine masthead** (`rail`, `rail-ink`, `rail-muted`, `rail-active`): the horizontal navigation ground, foregrounds, and divider/select edges. The established variable names are retained even though the fixed rail is gone.
+- **Rose selection** (`selection`): pressed controls, selected artist choices, and the current weekly queue entry. It stays distinct from positive-feedback washes.
+- **Rose focus** (`focus`): keyboard outlines on the work surface. Masthead controls use the light `rail-ink` outline.
 
 ### Secondary
 
-- **Amber current destination** (`rail-current`, `rail-current-ink`): a warm label with dark type that distinguishes the active destination from hover.
-- **Amber record label** (`record-label`): the wordmark hover color. It shares the current-destination hue while keeping a distinct semantic token. The logo itself uses its own brights; see Sideband logo.
-- **Amber percentile** (`sticker`, `sticker-ink`): the candidate-percentile badge. Its visual weight is lower than the artist name; dark mode uses a muted amber surface with light amber type.
+- **Amber destination** (`rail-current`): current navigation text and its three-pixel underline. `rail-current-ink` remains a compatibility token; current masthead navigation uses no filled amber tab.
+- **Amber record label** (`record-label`): the established token for wordmark hover. It does not recolor the white-and-pink record logo.
+- **Amber information** (`sticker`, `sticker-ink`): close-match/wildcard labels and candidate-percentile badges.
 
 ### Tertiary
 
-- **Positive evidence** (`pos`, `pos-wash`): supporting meter segments and liked rows. Green is reserved for these semantic states.
-- **Negative evidence** (`neg`, `neg-wash`, `error-ink`): opposing meter segments, disliked rows and chips, and error text.
+- **Positive evidence** (`pos`, `pos-wash`): supporting meter segments and liked feedback.
+- **Negative evidence** (`neg`, `neg-wash`, `error-ink`): opposing signals, disliked choices, and error text.
 
 ### Neutral
 
-- **Record-sleeve ivory** (`paper`, `paper-raised`, `paper-sunk`): the page, editable/floating surfaces, and recessed groups such as the starting point and tuning controls. Dark mode translates these layers into aubergine neutrals.
-- **Wine ink** (`ink`, `ink-2`, `muted`): primary text, explanations, and secondary metadata.
-- **Dividers and control edges** (`line`, `line-strong`): quiet row boundaries and stronger field/button outlines.
-- **Primary-action text** (`button-ink`): the text paired with the accent fill.
+- **Record-sleeve ivory** (`paper`, `paper-raised`, `paper-sunk`): page, focused/editable/floating surfaces, and recessed controls. Dark mode translates these layers into aubergine neutrals.
+- **Wine ink** (`ink`, `ink-2`, `muted`): primary text, connections and explanations, secondary metadata.
+- **Edges** (`line`, `line-strong`): quiet row boundaries and stronger group/field edges.
+- **Action text** (`button-ink`): foreground paired with the primary-action fill.
 
-### Theme behavior
+System follows `prefers-color-scheme`; Light and Dark set the root theme and persist under `mf.theme`. Dark-prefixed frontmatter entries record actual overrides. Masthead foregrounds, amber navigation, and the record-label hover token remain shared across themes. Components use semantic CSS variables so these changes propagate together.
 
-The System option follows `prefers-color-scheme`; Light and Dark set `data-theme` on the root and persist under `mf.theme`. The dark-prefixed frontmatter entries record the actual overrides, including `dark-selection`. Rail foregrounds (`rail-ink`, `rail-muted`), the amber current destination (`rail-current`, `rail-current-ink`), and `record-label` remain shared across themes. Use the semantic variables in components instead of copying a light value into a dark surface.
-
-**The Signal Color Rule.** Reserve green for positive evidence and liked feedback. Use wine and rose for selections, actions, and taste data; use amber for current navigation and percentile labels.
+**The Signal Color Rule.** Reserve green for positive evidence and liked feedback. Use wine and rose for selections, actions, and taste data; use amber for current navigation and compact information labels.
 
 ## Typography
 
 **Display font:** Fraunces with Georgia and serif fallbacks.
-**Body and control font:** DM Sans with Helvetica Neue and sans-serif fallbacks.
-**Numeric font:** the system monospace stack for tables and chart ticks; other numeric labels use tabular figures in DM Sans.
 
-The pairing gives artist discovery a literary character while keeping repeated actions compact and legible. Page titles use the frontmatter `display` role; recommendation artist names use `artist`. Headline and title roles remain sans serif. Paragraphs are limited to 70 characters where the layout permits; the model explanation allows 75 characters.
+**Body and control font:** DM Sans with Helvetica Neue and sans-serif fallbacks.
+
+**Numeric font:** the system monospace stack for tables and chart ticks; queue numbers and other compact data use tabular figures in DM Sans.
+
+Page titles use the `display` role; the weekly title changes tracking to -.025em. The focused weekly artist uses `listening-artist`, while ranked recommendations use `artist`. Sans-serif headlines and titles distinguish task structure from the music. Body paragraphs usually stop at 70 characters; the weekly connection stops at 60 characters.
 
 ### Hierarchy and responsive type
 
-- **Display:** page titles use `display`, with a 22-character maximum width. At 1180px and below they become 2.25rem; at 650px and below they become 2.125rem. Setup's title allows 24 characters on desktop and 20 on mobile.
-- **Headline / title:** section headings use `headline`; smaller headings use `title`. Starting-point headings use Fraunces at 1.5rem with a 1.2 line height.
-- **Artist:** discovery names use `artist`; at 650px and below they become 1.625rem. Explore territory rows use 1.5rem.
-- **Body:** default text uses `body`. Secondary explanations commonly use .875rem or .8125rem; supporting metadata commonly uses .75rem.
-- **Controls:** `button` and `button-primary` share size and line height; the primary role increases weight. Navigation uses `navigation`, rising to weight 600 for the current destination.
-- **Data:** `table-number` uses tabular figures. Chart ticks use 11px monospace; chart labels use 13px DM Sans.
+- **Page title:** 2.375rem on desktop. At 760px and below, secondary-page titles become 2rem and the weekly title becomes 1.75rem.
+- **Focused artist:** 2.75rem on wide screens, 2.25rem at 1050px and below, and 2rem at 760px and below. The name wraps at 17 characters rather than truncating.
+- **Other music headings:** ranked artist names use 1.75rem; territory headings use 1.75rem, territory artists 1.5rem, and collection headings 1.5rem.
+- **Body and controls:** body text is 1rem; connections use .9375rem on desktop and .875rem on phones. Buttons use .875rem with a stronger primary weight. Navigation uses .875rem, becoming .8125rem on phones.
+- **Metadata:** queue and date metadata uses .6875rem–.8125rem. Numerical tables use `table-number`; chart ticks use 11px monospace.
 
-The CSS declares a type scale of .875rem, 1rem, 1.25rem, 1.5rem, 2rem, and 2.625rem. Component-specific music, metadata, and mobile sizes are intentional rather than an enforced mathematical ratio.
+The source keeps its shared .875rem/1rem/1.25rem/1.5rem/2rem/2.625rem scale; component-specific music and phone sizes are deliberate overrides.
 
 ### Local font assets
 
-`musicfinder/web/dm-sans-regular.ttf` supplies weight 400. `musicfinder/web/dm-sans-semibold.ttf` is declared for weights 500–700. `musicfinder/web/fraunces-medium.ttf` is declared for weights 400–600. All three use `font-display: swap`. Keep `musicfinder/web/dm-sans-OFL.txt` and `musicfinder/web/fraunces-OFL.txt` with the assets; both record SIL Open Font License 1.1 attribution.
+`musicfinder/web/dm-sans-regular.ttf` supplies weight 400. `musicfinder/web/dm-sans-semibold.ttf` is declared for weights 500–700. `musicfinder/web/fraunces-medium.ttf` is declared for weights 400–600. All three use `font-display: swap`. Retain `dm-sans-OFL.txt` and `fraunces-OFL.txt` beside the assets; both record SIL Open Font License 1.1 attribution. There are no external font requests.
 
 **The Music Voice Rule.** Use Fraunces for page titles, discovery artist names, territory headings, and key editorial summaries. Keep form controls and song rows in DM Sans.
 
 ## Layout
 
-The desktop shell has a fixed left rail and a centered work area with a maximum outer width of 1350px. The rail is 212px wide by default; the work area has 48px top, 44px horizontal, and 72px bottom padding. At widths of at least 1550px, top padding grows to 60px. Shared spacing tokens run from `s1` through `s8`; use their 4/8/12/16/24/32/48/72px rhythm for new work while respecting existing control-specific dimensions.
+The masthead is in normal document flow at every width. Its first row carries the record wordmark, short brand line when space permits, and shared Listen on and Appearance selects. A divider separates the six-link navigation row. The first three discovery destinations sit together; Your taste, Accuracy, and Setup align toward the right on wider screens.
 
-The Setup workspace pairs a flexible artist grid with a 280px starting-point area, separated by 36px. The summary sticks 32px from the top. Artist choices form three flat columns on wide screens. Recommendation rows use rank, flexible music content, and an 80px percentile area, with 16px gaps. Explanatory tables scroll within their own container instead of widening the page.
+The centered work area and footer have a 1240px maximum width. Main content has 40px top and 64px bottom padding on desktop. Shared spacing tokens preserve the 4/8/12/16/24/32/48/72px rhythm; component-specific dimensions reflect the implemented layouts.
+
+The weekly introduction and date precede a progress line. The workspace pairs flexible artist content with a 338px queue and 42px gap. The active artist has one raised surface with 34px 36px 24px padding and a 425px minimum content height. Previous/Next and selection details sit below. Queue rows are flat, numbered, and internally scroll after 590px. Your keepers and Sorted this week form two equal columns below a stronger divider, with independently scrolling lists after 360px.
+
+Setup pairs the artist grid with a 330px starting point across a 48px gap. The starting point sticks 32px from the top on desktop. Search and verdict filters in Your taste share a flat two-column index above their list. Tables scroll inside their own containers.
 
 ### Responsive thresholds
 
 | Width | Implemented behavior |
 | --- | --- |
-| 1180px and below | Rail becomes 186px; main padding becomes 36px 30px 60px. Starting point becomes 240px with a 24px gap. Artist choices use two columns. Unequal split sections stack. |
-| 900px and below | Rail becomes an in-flow header, navigation runs horizontally, and Appearance sits at the top right. Main padding becomes 32px 28px 56px. Setup still uses a 260px summary column. Even split sections and song recommendation actions stack. |
-| 650px and below | All six destinations form a three-column, two-row grid. Main padding becomes 28px 20px 48px. Setup stacks; artist choices remain two columns. Recommendation rank is hidden, leaving a flexible music column and 66px percentile area. |
+| 1320px and below | Main/footer gain 36px side margins; queue becomes 310px with a 30px gap. |
+| 1180px and below | Legacy unequal secondary-page splits stack. The listening-desk shell overrides the former rail layout. |
+| 1050px and below | Brand line hides; queue becomes 270px with a 26px gap. Focused content uses 26px 24px 20px padding. Setup summary becomes 270px, and artist choices use two columns. |
+| 900px and below | Secondary-page even splits and song recommendation actions stack. |
+| 760px and below | Weekly artist, queue, and collections stack in reading order. Navigation stays one horizontally scrollable row with all six labels; icons hide. Main uses 22px side margins and 24px top padding. Queue scrolling begins after 310px. Setup stacks. Weekly decisions use a two-column button grid. |
+| 650px and below | Saved-choice filters stack, with three equally sized scope buttons. Setup's discovery action becomes fixed 12px from the sides and bottom; the footer reserves 150px for it. |
+| 420px and below | Side margins become 18px, masthead controls tighten, the decorative progress ticks hide, and collection headings stack. |
 
-On small Setup screens, the discovery action is fixed 12px from both sides and the bottom. It shows the selected count, action, and supporting status; the footer reserves 150px below its content. Toasts sit 132px above the bottom on small screens. The starting-point summary itself is in normal flow. Navigation, style choices, selected chips, and song actions have at least 44px mobile height. Tuning is open by default when the view is created above 650px and collapsed by default at narrower widths.
+Phone artist padding is 22px 20px 18px. Masthead selects remain at least 44px high; the two leading weekly decisions are at least 46px high. Toasts sit 20px above the phone viewport bottom, or 140px above it on Setup. Native disclosures keep detail available without extending the initial listening surface.
 
 ## Elevation & Depth
 
-Most depth comes from paper tones and borders. Recommendation rows, artist choices, accuracy tables, and summary metrics are flat. Starting-point and tuning groups use the recessed tone without shadows. The shared `--shadow` is `0 8px 28px #3014211c` in light mode and `0 8px 28px #0005` in dark mode; it is used on tooltips, toasts, and the mobile discovery action. Those values live in the sidecar's shadow extension because the frontmatter schema does not accept shadow tokens.
+Depth comes mainly from paper tones and borders. The focused weekly artist and Setup summary use the raised tone without a shadow. Queues, saved collections, ranked recommendations, and tables remain flat. The shared shadow is `0 8px 28px #3014211c` in light mode and `0 8px 28px #0005` in dark mode, used for tooltips, toasts, and the fixed mobile discovery action.
 
-Buttons transition background and border colors over 160ms. Recommendation feedback backgrounds and progress widths transition over 200ms. Both use `cubic-bezier(.16,1,.3,1)`. The loading indicator breathes over 1.5s with `ease-in-out`. Reduced-motion mode disables animations, transitions, and smooth scrolling; tag exploration also checks that preference before scrolling.
+Buttons transition background and border colors over 160ms. Recommendation feedback backgrounds and progress widths transition over 200ms. Both use `cubic-bezier(.16,1,.3,1)`. The loading line breathes over 1.5s with `ease-in-out`. Reduced-motion mode disables animations, transitions, and smooth scrolling.
 
-**The Floating Surface Rule.** Keep ordinary sections and recommendation rows flat. Use the shared shadow for content that floats above the workspace: tooltips, toasts, and the mobile discovery action.
+**The Floating Surface Rule.** Keep ordinary sections, queues, and recommendation rows flat. Use the shared shadow for tooltips, toasts, and the mobile discovery action.
 
 ## Shapes
 
-Controls and navigation use the gently curved `control` radius; recessed groups, empty states, toasts, and the mobile action use `radius`. Selected-artist chips and style filters use `radius-pill`. Recommendation and artist-choice rows use square, flat edges and a single divider. Mobile navigation uses a 6px radius. Real artist-search portraits and initial fallbacks are circular. Import areas use a dashed outline, and inline navigation symbols are simple stroked SVGs.
+Default controls use an 8px radius. Masthead selects use 6px, compact selection labels 3px, and percentile badges 4px. Notes, tuning, and ordinary empty states use 10px; the focused artist and Setup summary use 12px. Toasts use 8px. Removable picks and style filters remain pill-shaped. Navigation and queue entries use square edges; current navigation is an underline, and the active queue indicator is a small circle. Artist-search portraits and initial fallbacks are circular. Import areas retain dashed outlines.
 
 ## Components
 
-### Buttons
+### Buttons and fields
 
-The primary action has an accent fill, contrasting action text, and the `button-primary` role. Secondary buttons use a transparent surface and strong outline; quiet buttons keep a transparent border and muted text. Default controls are at least 44px high. Hover uses the recessed surface and ink outline for secondary controls, and the accent hover fill for primary controls. Disabled buttons use .5 opacity and a not-allowed cursor. Pressed buttons combine the rose `selection` wash, accent text and outline, and `aria-pressed`.
+Primary actions use the wine/pale-rose fill and contrasting action text. Secondary actions use a transparent surface and strong outline; quiet actions use a transparent border and muted text. Hover applies a recessed surface and ink edge, or the primary hover fill. Default action height is 44px. Disabled actions use .5 opacity and a not-allowed cursor. Pressed controls combine rose wash, accent text/edge, and `aria-pressed`.
 
-Keyboard focus is a 3px outline with a 4px offset and 4px radius. In the rail it switches to the rail's light foreground. Native focus, hover, disabled, and selected semantics are retained.
+Text/search fields, native selects, and textareas use the raised tone, strong edge, 8px radius, and 10px 14px padding. Default field height is 46px; prominent artist search is 50px. Placeholder text is muted; carets, ranges, and radio controls use the accent. Keyboard focus is a 3px outline with 4px offset and 4px radius, switching to ivory in the masthead.
 
-### Inputs and native controls
+### Masthead and navigation
 
-Text fields, search, selects, and textareas use a raised surface, strong outline, control radius, and 10px 14px padding. Their default minimum height is 46px; the prominent artist search is 50px. Search fields stretch within their grid. Textareas allow vertical resizing and start at 150px high. Placeholder text uses `muted`; the caret, ranges, and radio controls use the accent. Appearance remains a native select with System, Light, and Dark options.
+The horizontal aubergine masthead contains the record wordmark, six destinations, and shared native selectors. Links use 17px stroked SVGs and at least 53px height on desktop; phone links omit icons and use 50px height. Current navigation uses amber text, weight 600, a 3px underline, and `aria-current="page"`. Hover changes text to ivory. The destinations are This week, Songs, Explore, Your taste, Accuracy, and Setup; For you remains available through the full ranked-list link in This week.
 
-### Navigation
+Listen on updates all artist/song links, including keepers and cards available for Undo, and persists under `mf.listenOn`. Appearance offers System, Light, and Dark. The skip link targets the main region. Route changes update the title and current destination.
 
-The aubergine rail contains the white record mark and six labeled SVG destinations. Desktop links are at least 46px high, with 19px icons. Hover uses the wine `rail-active` surface and light `rail-ink` text. The current destination uses amber `rail-current` with dark `rail-current-ink`, weight 600, and `aria-current="page"`. The header preserves all six labeled links at smaller widths. A keyboard skip link moves focus to the main region, and route changes update the document title and current destination.
+### Focused weekly artist and queue
 
-### Artist choices, chips, and starting point
+One artist is visible at a time. Its large serif name, selection number, tags, and close-match/wildcard labels lead into The connection, preview/service access, More songs, and Keep / Pass / Know them / Not now. Supporting evidence uses a native disclosure. Preview controls use a recessed tone and accent text; external service links have a small stroked arrow.
 
-Artist choices are text-first, divider-separated buttons, with a name and Pick/Picked marker. A selection applies the rose `selection` wash and wine accent text, changes the label, updates `aria-pressed`, and adds a check icon. They are at least 93px high on desktop and 86px on mobile. Style filters sit inside a native Browse by style disclosure; the active style uses ink over paper.
+Queue selection and Previous/Next change the active artist and preserve position per week under `mf.focus.<week>`. Changing artists stops the prior preview; keyboard selection moves focus to the artist heading, and phone selection brings that card into view. Current queue rows use rose wash, accent text, and a dot. Sorted rows retain their number, a textual verdict, and a check, and cease to be selectable. A decision advances to the next open artist; Sorted this week provides Undo. Restoring an artist returns it to the open set. Add 5 more and the completed-selection action extend the batch with explicit loading/exhausted states.
 
-Saved picks appear as removable pills in the starting-point area. Loved picks use the raised surface; disliked picks use the negative wash and strike-through. The chip area wraps and scrolls vertically after 300px. The starting point shows selection count, save status, and the state-dependent discovery action; its sticky desktop and fixed mobile behaviors are defined in Layout.
+Your keepers remains directly below the workspace, with preferred-service links and Share list. Sharing uses the native share sheet when available, then clipboard, then a text download. More songs expands/collapses a full-width song list, retains `aria-expanded`, and reports loading, empty, and retryable error states.
 
-### Recommendation rows and progressive evidence
+### Saved choices and filters
 
-Music names and the “Because of” connection lead each row. A compact amber badge is explicitly labeled percentile. Preview, external music, and feedback actions wrap below. A rating leaves the row in place, applies the corresponding wash, and exposes a saved message and Undo. Refreshed results apply the changed taste.
+Your taste uses a flat search/filter index above saved decisions. Search covers artist or song text; a native verdict select distinguishes Any choice, Liked, Not for me, and Already know. All choices / Artists / Songs are pressed-state scope buttons. Results update while typing and in batches of 30, with a live textual count, a Clear filters recovery, and focus moved into newly revealed rows. Filtering reads current saved verdicts so changing a filter does not restore an undone choice. Filter values are local to the current view; saved decisions persist.
 
-The native “Why this match” disclosure contains the supporting/opposing signal meter, an ink net-score mark, a textual legend, and a table of signed effects. The table gives the evidence without depending on color or pointer tooltips. Provisional like estimates and simulated truth, when present in the data, are separately labeled. Model explanations and tuning use their own disclosures so they do not compete with the list.
+### Artist choices and starting point
 
-### Songs and playback states
+Setup choices remain text-first buttons separated by dividers, with Pick/Picked text and a check for selection. They use the rose wash and accent text and have a 100px minimum height. Style filters sit in Browse by style. Removable favorite/disliked pills wrap and scroll after 300px; dislikes use the negative wash and strike-through. The raised starting-point summary contains selection count, save state, and the discovery action.
 
-Song names use compact DM Sans hierarchy with the artist beneath. The action group is right-aligned on wide screens and stacks below on narrower ones. A preview initially says it is being checked; a play button appears only after a matching clip is available. Unavailable, check-failed, playback-failed, retry, cancel, and pause states retain explicit text. Preview controls use the recessed surface and accent text.
+### Ranked results, songs, and evidence
 
-### Data, feedback, and recovery
+Ranked recommendations remain flat rows with familiar connections and an explicitly labeled amber percentile. Ratings stay in their row with a saved message and Undo until results refresh. Song names use compact DM Sans hierarchy and actions stack below on narrower screens. A play button appears only after a matching preview exists; unavailable, check-failed, playback-failed, retry, cancel, and pause states retain explicit text.
 
-Taste bars use the wine accent; positive evidence remains green in recommendation meters. Accuracy charts use subdued grid lines, tabular labels, and clear foreground marks. Tables sit inside horizontal scrolling containers. Empty and error states use a recessed area with readable explanation and a concrete next action where available. Loading has a text status and a small progress treatment. Service, job, save, rating, and toast messages use status semantics; synthetic demo data has a visible banner. Import, backup, and data management stay in native Setup disclosures.
+Why this match holds supporting/opposing signal colors, an ink net-score mark, textual legend, and signed effects table. Percentile, provisional like estimates, and simulated truth remain distinct. Taste bars use wine; accuracy charts use subdued grids and tabular labels. Loading, empty, service, and error states explain what happened and expose recovery where available. Demo evidence retains its visible banner.
+
+### Sideband logo and provenance
+
+The logo is a plain record: a white disc, hot-pink label, and transparent spindle hole. It represents the music the listener already plays.
+
+- **Master geometry:** `musicfinder/web/brand-mark.svg`, a 64-unit square with a 24-unit-radius disc, 8.5-unit label, and 2.6-unit masked spindle hole. Do not add grooves, waves, shadows, gradients, or animation.
+- **Color:** logo-only coral `#ff5a3c`, pink `#ff3d7f`, and white. The dark-ground record is white with pink; the light lockup is coral with pink. Icons use white/pink on coral. These brights do not join the interface palette.
+- **Wordmark:** capitalized Sideband in Fraunces Medium 500 with -.03em tracking. The live masthead uses selectable text beside a decorative image in one Sideband home link. `docs/brand/` contains outlined light/dark SVG lockups; the source font and OFL license remain in `musicfinder/web/`.
+- **Size and space:** the masthead mark is a 36px square on desktop, 30px at 760px and below, and 27px at 420px and below. Wordmark gaps are 11px, then 8px on the smallest screens; the home target stays at least 44px high. Use at least a 16px box for an isolated mark and retain 8/64 clear space. Scale disc, label, and hole together.
+- **Icons and provenance:** the 180/192/512px PNGs derive from `docs/brand/app-icon.svg`. Their opaque coral ground fills the image and the disc stays inside the central 80%-diameter safe circle. The favicon uses its own enlarged optical placement. The vectors and outlined lettering were authored locally; PNGs are raster exports with embedded provenance, not stock or generated artwork. Retain this provenance on replacement exports and let the OS apply its own corner mask.
+- **Interaction:** the wordmark returns to This week, changes text to amber on hover, and uses the masthead's ivory focus outline. The This week destination's target icon is separate from the brand mark.
+
+`docs/brand/README.md` records the existing logo export and verification history; its original header-size screenshots predate this listening-desk layout.
 
 ## Do's and Don'ts
 
 ### Do:
 
-- Do use the existing semantic CSS variables so theme changes apply to every component.
-- Do keep green limited to positive evidence and liked feedback; use the wine accent for taste bars and the rose wash for selections.
-- Do keep artist names and familiar connections prominent, with supporting model detail in disclosures.
-- Do retain visible focus, native controls, textual state labels, and reduced-motion behavior.
-- Do keep feedback in its existing row with a saved message and Undo until the listener refreshes.
-- Do preserve all six navigation destinations and the fixed discovery action on small Setup screens.
-- Do label candidate percentile, provisional estimates, and synthetic demo evidence distinctly.
+- Do use semantic CSS variables so light and dark themes apply to every component.
+- Do reserve green for positive evidence and liked feedback, wine for taste data, and rose for selections.
+- Do keep music names, familiar connections, and the next listening action prominent.
+- Do preserve all six navigation destinations and shared service and appearance controls.
+- Do keep weekly choices reversible through Sorted this week and ranked ratings reversible in their rows.
+- Do retain native controls, visible focus, textual state labels, and reduced-motion behavior.
+- Do keep queue and collection layouts flat around the single focused weekly artist.
 
 ### Don't:
 
-- Don't substitute a generic green brand palette for Sideband's record-sleeve ivory, wine, aubergine, and amber identity.
-- Don't add fabricated artwork, testimonials, listening counts, or accuracy claims.
-- Don't turn ordinary recommendation rows into stacked raised cards.
-- Don't use color alone to communicate selected artists, ratings, errors, or signal direction.
+- Don't substitute a generic green palette for the established ivory, wine, aubergine, and amber identity.
+- Don't apply the logo's coral and pink brights to interface controls.
+- Don't invent artwork, testimonials, listening counts, or accuracy claims.
+- Don't use color alone for selections, verdicts, errors, or signal direction.
+- Don't turn a candidate percentile into a like probability or make unavailable previews appear playable.
 - Don't replace native selects, ranges, radio buttons, or disclosure semantics with decorative imitations.
-- Don't introduce external font requests; use the local font files and retain their licenses.
-- Don't change a candidate percentile into a like probability or present unavailable previews as playable.
-
-
-## Sideband logo
-
-The logo is a plain record: a white disc, a hot-pink label, and a see-through spindle hole. It is deliberately simple and bright so it reads instantly at tab and home-screen sizes, and it stands for the product's starting point: the music you already play.
-
-- **Master geometry:** `musicfinder/web/brand-mark.svg`, a 64-unit square: a 24-unit-radius disc, an 8.5-unit label, and a 2.6-unit spindle hole cut with a mask so the ground shows through. Do not add grooves, waves, shadows, gradients, or animation.
-- **Color:** logo-only brights, coral `#ff5a3c` and pink `#ff3d7f`, plus white. On dark grounds (the aubergine rail, dark lockup) the disc is white with a pink label. On ivory the disc is coral with a pink label. App icons and the favicon use a white disc with a pink label on a coral ground. These brights are for the mark only; they do not join the interface palette.
-- **Wordmark:** retain the capitalized “Sideband,” Fraunces Medium 500, with -0.03em tracking. The live header uses selectable text beside a decorative image, within one “Sideband home” link. Outlined light/dark SVG lockups in `docs/brand/` require no font installation; the source font and its OFL license are in `musicfinder/web/`.
-- **Sizing and space:** the header mark has a 32px square box (24px visible disc); use at least a 16px box for the isolated mark. Keep at least 8/64 of the box clear around it. Scale the label and hole with the disc, never independently. The header pairs it with a 10px gap and provides a 44px-high home target. Do not stretch the geometry.
-- **App icons:** 180, 192, and 512px PNGs derive from `docs/brand/app-icon.svg`. Their opaque coral ground fills the image, while the disc remains inside the central 80%-diameter safe circle. Let the operating system apply its own corner mask. The favicon has a separate, enlarged optical placement for small browser tabs.
-- **Interaction:** the logo returns to This week using the existing route; no special motion. Hover changes the wordmark to amber, and keyboard focus uses the rail’s ivory outline. All six destination icons retain their existing meaning; the outline target icon for This week is not the brand mark.
-
-The logo refresh is deliberately scoped to recognition and consistency. Product workflows, saved data, integrations, and factual copy are unchanged. Verification is recorded in `docs/brand/README.md`.
+- Don't introduce external font requests or remove the local font licenses and logo provenance.

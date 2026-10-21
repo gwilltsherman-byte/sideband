@@ -72,3 +72,16 @@ export function latestRequest() {
     current: (token) => token === sequence,
   };
 }
+
+// Search saved artist/song decisions without changing their original order or scope.
+export function filterSavedChoices(items, { query = "", scope = "all", verdict = "all" } = {}) {
+  const normalize = (text) => String(text ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase();
+  const words = normalize(query).trim().split(/\s+/).filter(Boolean);
+  return items.filter((item) => {
+    const song = Boolean(item.track);
+    if (scope === "artist" && song || scope === "song" && !song) return false;
+    if (["like", "dislike", "known"].includes(verdict) && item.verdict !== verdict) return false;
+    const text = normalize(`${item.artist || ""} ${item.track || ""}`);
+    return words.every((word) => text.includes(word));
+  });
+}
