@@ -78,6 +78,10 @@ async function main() {
         .replace('from "./preview-state.js"', `from "./preview-state.js?v=${version}"`)
         .replace('import("./browser-api.js")', `import("./browser-api.js?v=${version}")`);
       await writeFile(path.join(out, "static", f), source);
+    } else if (f === "manifest.webmanifest") {
+      const manifest = JSON.parse(await readFile(path.join(web, f), "utf8"));
+      manifest.icons = manifest.icons.map(icon => ({ ...icon, src: `${icon.src}?v=${version}` }));
+      await writeFile(path.join(out, "static", f), JSON.stringify(manifest, null, 2) + "\n");
     } else await cp(path.join(web, f), path.join(out, "static", f));
   }
   let html = await readFile(path.join(web, "index.html"), "utf8");
@@ -85,14 +89,13 @@ async function main() {
     `<script>window.MUSICFINDER_MODE = "browser"; window.MUSICFINDER_VERSION = "${version}";`
       + ` window.MUSICFINDER_PYODIDE = new URL("./pyodide/${pyodideVersion}/", location.href).href;`
       + ` window.MUSICFINDER_RELAY = ${JSON.stringify(process.env.SIDEBAND_RELAY_URL || "")};</script>`,
-    `<link rel="manifest" href="./static/manifest.webmanifest">`,
-    `<link rel="apple-touch-icon" href="./static/icon-180.png">`,
+    `<link rel="manifest" href="./static/manifest.webmanifest?v=${version}">`,
     `<meta name="apple-mobile-web-app-capable" content="yes">`,
     `<meta name="mobile-web-app-capable" content="yes">`,
   ].join("\n  ");
   if (!html.includes("</head>")) throw new Error("index.html has no </head>");
   html = html.replaceAll('="/static/', '="./static/');
-  for (const f of ["app.js", "style.css", "listening-desk.css", "taste-filters.css", "favicon.svg"]) html = html.replaceAll(`="./static/${f}"`, `="./static/${f}?v=${version}"`);
+  for (const f of ["app.js", "style.css", "listening-desk.css", "taste-filters.css", "favicon.svg", "icon-180.png"]) html = html.replaceAll(`="./static/${f}"`, `="./static/${f}?v=${version}"`);
   html = html.replace("</head>", `  ${head}\n</head>`);
   await writeFile(path.join(out, "index.html"), html);
   await writeFile(path.join(out, ".nojekyll"), "");
