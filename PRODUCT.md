@@ -49,3 +49,9 @@ Keyboard access, visible focus, readable contrast, responsive desktop/mobile lay
 ## Evidence on Hand
 
 README.md, RUNNING.md, frontend and engine source, existing tests, the live app, and a labeled synthetic demo. No testimonials or commercial claims are supplied.
+
+## Listening desk redesign — October 2026
+
+The main weekly view is a finite listening workspace: one active artist, a numbered queue, previous/next navigation, immediate choices, persistent active position, keepers and reversible decisions. The shared masthead exposes the preferred music service on every route. More songs can expand and collapse. Saved choices support search, artist/song scope, verdict filtering and incremental display. All seven routes and the original backend remain available.
+
+Success means selecting a favourite and reaching discoveries, deciding and undoing without losing position, returning to keepers quickly, and recovering from unavailable previews or service errors. Assumed usage is short mobile discovery sessions and longer desktop listening. These assumptions come from existing features; no demographic claims are made. The record logo and established ivory/wine/aubergine/amber brand remain requirements. This redesign replaces the navigation and weekly composition, not product facts or engine contracts.

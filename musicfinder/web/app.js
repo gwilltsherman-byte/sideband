@@ -1,6 +1,6 @@
 // Sideband single-page UI. Plain ES module, no build step.
 import { explorationChoice, batchChoice, nextRecommendationAction, latestRequest, quickReviewCurrent, quickInputKind,
-  weekStart, addDaysISO, LISTEN_SERVICES, listenChoice, listenUrl, stackStatusLabel } from "./ui-state.js";
+  filterSavedChoices, weekStart, addDaysISO, LISTEN_SERVICES, listenChoice, listenUrl, stackStatusLabel } from "./ui-state.js";
 import { ARTIST_STYLES, artistChoices, artistIdentity } from "./artist-picker.js";
 import { previewObservation, feedbackIdentity, feedbackIO } from "./listening-signals.js";
 import { previewAvailability, previewInViewport } from "./preview-state.js";
@@ -46,8 +46,24 @@ const compact = (n) => (n == null ? "—" : Intl.NumberFormat(undefined, { notat
 const listJoin = (items) => (items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
 // Every listen link opens the listener's chosen service (This week's "Listen on" choice).
 let listenOn = listenChoice(store("mf.listenOn"));
-const listenLabel = () => `Open in ${LISTEN_SERVICES[listenOn]} ↗`;
-const listenLink = (artist, track = "", label = listenLabel()) => `<a class="button" href="${esc(listenUrl(listenOn, artist, track))}" target="_blank" rel="noopener" data-listen-open data-artist="${esc(artist)}" data-track="${esc(track)}">${label}</a>`;
+const externalIcon = '<svg class="external-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg>';
+const listenLabel = () => `Open in ${LISTEN_SERVICES[listenOn]}`;
+const listenLink = (artist, track = "", label = listenLabel()) => `<a class="button" href="${esc(listenUrl(listenOn, artist, track))}" target="_blank" rel="noopener" data-listen-open data-artist="${esc(artist)}" data-track="${esc(track)}">${esc(label)}${externalIcon}</a>`;
+function updateListenLinks(root = main) {
+  root.querySelectorAll("a[data-listen-open]").forEach(link => {
+    link.href = listenUrl(listenOn, link.dataset.artist, link.dataset.track || "");
+    link.innerHTML = `${esc(listenLabel())}${externalIcon}`;
+  });
+}
+const listenSelect = $("#listen-on");
+listenSelect.innerHTML = Object.entries(LISTEN_SERVICES).map(([id, label]) => `<option value="${id}" ${id === listenOn ? "selected" : ""}>${label}</option>`).join("");
+listenSelect.addEventListener("change", () => {
+  listenOn = listenChoice(listenSelect.value);
+  store("mf.listenOn", listenOn);
+  updateListenLinks();
+  $("#stack-view")?.dispatchEvent(new Event("sideband-service"));
+  toast(`Listen links now open in ${LISTEN_SERVICES[listenOn]}.`);
+});
 const feedbackChoices = new Map();
 const feedbackSaving = new Set();
 const feedbackAccess = feedbackIO({
@@ -283,9 +299,9 @@ async function route() {
   main.dataset.view = name;
   document.title = `${({"this-week":"This week","for-you":"For you",songs:"Songs",explore:"Explore",taste:"Your taste",accuracy:"Accuracy",setup:"Setup"})[name]} · Sideband`;
   document.querySelectorAll(".tabs a").forEach((a) => {
-    if (a.getAttribute("href") === `#${name}`) {
+    if (a.getAttribute("href") === `#${name === "for-you" ? "this-week" : name}`) {
       a.setAttribute("aria-current", "page");
-
+      if (matchMedia("(max-width: 760px)").matches) a.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
     else a.removeAttribute("aria-current");
   });
@@ -837,32 +853,26 @@ function scoreLine(score) {
 
 function stackCard(item, i, scale) {
   const name = esc(item.name);
-  const tags = (item.tags || []).slice(0, 4).map(esc).join(" · ");
-  const listeners = item.popularity ? ` · ${compact(item.popularity)} listeners` : "";
-  const truth = item.true_like_probability != null
-    ? `<span class="truth-chip">Simulation’s true like-probability: ${Math.round(item.true_like_probability * 100)}%</span>` : "";
-  const slots = [item.slot === "wildcard" ? "Wildcard" : "", item.second_look ? "Second look" : ""]
+  const tags = (item.tags || []).slice(0, 3).map(esc).join(" · ");
+  const slots = [item.slot === "wildcard" ? "Wildcard" : "Close match", item.second_look ? "Second look" : ""]
     .filter(Boolean).map((label) => `<span class="stack-slot">${label}</span>`).join("");
-  return `<li class="rec stack-card" data-artist="${name}" data-key="${esc(item.key)}" data-ctx="${esc(JSON.stringify(item.context || {}))}" data-index="${i}">
-    <div class="rec-rank" aria-hidden="true">${String(i + 1).padStart(2, "0")}</div>
-    <div>
-      ${slots ? `<div>${slots}</div>` : ""}
-      <h3 class="rec-name">${name}</h3>
-      <div class="rec-tags">${tags || "no genre tags"}${listeners}</div>
-      <p class="rec-why">${recReason(item)}</p>
-      ${meter(item, scale)}
-      ${truth}
-      <div class="rec-actions">
-        ${previewControl()}
-        ${listenLink(item.name)}
-        <button data-act="more-songs" aria-label="More songs by ${name}">More songs</button>
-      </div>
-      <div class="rec-actions" role="group" aria-label="Your choice for ${name}">
-        <button data-stack="keep" class="primary">Keep</button>
+  return `<li class="rec stack-card" data-artist="${name}" data-key="${esc(item.key)}" data-ctx="${esc(JSON.stringify(item.context || {}))}" data-index="${i}" hidden>
+    <div class="listening-card">
+      <div class="artist-heading"><h2 class="rec-name" tabindex="-1">${name}</h2><span class="selection-number" aria-label="Selection ${i + 1}">${String(i + 1).padStart(2, "0")}</span></div>
+      <div class="rec-tags">${tags || "Discover their sound"}</div>
+      <div class="selection-labels">${slots}</div>
+      <div class="listening-note"><h3>The connection</h3><p class="rec-why">${item.because?.length ? `From your love of ${listJoin(item.because.slice(0, 3).map(name => `<b>${esc(name)}</b>`))}.` : "A new connection through your wider taste network."}</p></div>
+      <div class="rec-actions listening-actions">${previewControl()}${listenLink(item.name)}
+      <button class="quiet more-songs" data-act="more-songs" aria-expanded="false" aria-label="More songs by ${name}">More songs</button></div>
+      <div class="rec-actions decision-actions" role="group" aria-label="Your choice for ${name}">
+        <button data-stack="keep" class="primary"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>Keep</button>
         <button data-stack="pass">Pass</button>
         <button data-stack="known" class="quiet">Know them</button>
         <button data-stack="snooze" class="quiet">Not now</button>
       </div>
+      <p class="decision-help">Keep what you love. “Not now” sets it aside for four weeks.</p>
+      ${meter(item, scale).replace("</details>", `<p>${recReason(item)}</p></details>`)}
+      ${item.true_like_probability != null ? `<span class="truth-chip">Simulation’s true like-probability: ${Math.round(item.true_like_probability * 100)}%</span>` : ""}
     </div>
   </li>`;
 }
@@ -878,46 +888,36 @@ async function viewThisWeek() {
   const mine = routeSeq;
   if (state.graph_exists && !state.graph_ready && state.lookup_available !== false && !state.job.running && !autoBuildTried) {
     autoBuildTried = true;
-    startJob("/api/build"); // the job strip shows progress; this view redraws when it finishes
+    startJob("/api/build");
   }
   main.innerHTML = `
-    <div class="view-head">
-      <div><h1>Your ten for this week.</h1><p>Artists you haven’t told Sideband about yet, chosen from your taste. Keep or pass each one; nothing you’ve already seen comes back.</p><p class="small muted">Based on ${basisText()} <a href="#setup">Edit your starting point</a></p></div>
-      ${dialMarkup("Applies to your next picks and to “5 more”.")}
-    </div>
+    <div class="week-heading"><div><h1>This week’s selection.</h1><p>Follow a connection. Give it a listen. Keep what stays with you.</p></div><div class="week-date" id="week-date"></div></div>
     <div id="stack-view">
-      <div class="recommendation-controls"><div class="row"><label for="listen-on">Listen on</label>
-        <select id="listen-on">${Object.entries(LISTEN_SERVICES).map(([id, label]) => `<option value="${id}" ${id === listenOn ? "selected" : ""}>${label}</option>`).join("")}</select></div>
-        <p class="small muted" id="stack-progress" role="status">Choosing this week’s artists…</p>
+      <div class="session-toolbar"><p id="stack-progress" role="status">Choosing this week’s artists…</p><a href="#setup">Edit your starting point</a></div>
+      <div class="listening-workspace">
+        <section class="listening-focus" aria-label="Artist in focus">
+          <ol class="recs" id="stack-open"><li class="loading">Choosing this week’s artists…</li></ol>
+          <div id="stack-done" class="empty" hidden></div>
+          <div class="focus-navigation" id="focus-navigation" hidden><button id="stack-previous" class="quiet" aria-label="Previous artist">Previous</button><span id="focus-position"></span><button id="stack-next" class="quiet" aria-label="Next artist">Next</button></div>
+          <details class="selection-details"><summary>About this selection</summary><p>Based on ${basisText()}. Your choices shape the next selection. Unanswered artists may return once; “Not now” gives them four weeks.</p>${dialMarkup("Applies to your next picks and to “5 more”.")}</details>
+        </section>
+        <aside class="selection-queue" aria-label="This week’s queue"><div class="queue-heading"><h2>This week’s artists</h2><span id="queue-count"></span></div><ol id="stack-queue" class="queue-list"></ol><div id="stack-more-row" hidden><button id="stack-more" class="quiet">Add 5 more</button></div><a class="ranked-link" href="#for-you">Browse the full ranked list ${externalIcon}</a></aside>
       </div>
-      <ol class="recs" id="stack-open"><li class="loading">Choosing this week’s artists…</li></ol>
-      <div class="row" id="stack-more-row" hidden><button id="stack-more">5 more</button></div>
-      <div id="stack-done" class="empty" hidden></div>
-      <section class="section" id="stack-sorted-section" hidden><h2>Sorted this week</h2><ol class="songs" id="stack-sorted"></ol></section>
-      <section class="section" id="keepers"><h2>Your keepers</h2><div id="keepers-body"><p class="loading">Loading your keepers…</p></div></section>
-      <p class="section"><a href="#for-you">Browse the full ranked list</a></p>
+      <div class="collection-workspace"><section id="keepers"><div class="collection-heading"><h2>Your keepers</h2><span>Worth coming back to.</span></div><div id="keepers-body"><p class="loading">Loading your keepers…</p></div></section>
+      <section id="stack-sorted-section" hidden><div class="collection-heading"><h2>Sorted this week</h2><span>Every decision is reversible.</span></div><ol class="songs" id="stack-sorted"></ol></section></div>
     </div>`;
   $("#dial").addEventListener("input", (e) => {
-    // Only later deals use the new setting; this week’s cards stay as they are.
     exploration = Number(e.target.value);
     store("mf.exploration", String(exploration));
     $("#dial-say").textContent = dialText(exploration);
   });
-  const view = $("#stack-view");
-  const box = $("#stack-open");
-  const sorted = $("#stack-sorted");
-  const progress = $("#stack-progress");
-  const done = $("#stack-done");
-  const entries = new Map(); // artist key -> { item, el, index }, in dealt order
-  const saving = new Set();
-  let week = weekStart();
-  let exhausted = false;
-  let dealing = false;
-  let keepers = [];
+  const view = $("#stack-view"), box = $("#stack-open"), sorted = $("#stack-sorted"), progress = $("#stack-progress"), done = $("#stack-done");
+  const entries = new Map(), saving = new Set();
+  let week = weekStart(), exhausted = false, dealing = false, keepers = [], activeKey = null;
   const here = () => mine === routeSeq && view.isConnected;
-
+  const openEntries = () => [...entries.values()].filter(entry => entry.item.status === "open");
   const insertOpen = (entry) => {
-    const after = [...box.children].find((li) => Number(li.dataset.index) > entry.index);
+    const after = [...box.children].find(li => Number(li.dataset.index) > entry.index);
     box.insertBefore(entry.el, after || null);
   };
   const addItems = (list) => {
@@ -932,179 +932,177 @@ async function viewThisWeek() {
     });
   };
   const render = () => {
-    const all = [...entries.values()].map((entry) => entry.item);
-    const open = all.filter((item) => item.status === "open").length;
-    const kept = all.filter((item) => item.status === "kept").length;
-    progress.textContent = `${all.length - open} of ${all.length} sorted`;
-    box.hidden = !open;
-    $("#stack-more-row").hidden = !open || exhausted;
+    const all = [...entries.values()], remaining = openEntries();
+    if (!remaining.some(entry => entry.item.key === activeKey)) activeKey = remaining[0]?.item.key || null;
+    for (const entry of all) entry.el.hidden = entry.item.key !== activeKey;
+    store(`mf.focus.${week}`, activeKey || "");
+    const activeIndex = remaining.findIndex(entry => entry.item.key === activeKey);
+    progress.innerHTML = `<span class="session-progress" aria-hidden="true">${all.map(entry => `<i class="${entry.item.status === "open" ? "" : "sorted"}"></i>`).join("")}</span><span>${all.length - remaining.length} of ${all.length} sorted</span>`;
+    $("#queue-count").textContent = `${remaining.length} to discover`;
+    $("#week-date").textContent = `Week of ${localDate(week).toLocaleDateString(undefined, { month: "long", day: "numeric" })}`;
+    $("#stack-queue").innerHTML = all.map(entry => `<li><button data-queue="${esc(entry.item.key)}" ${entry.item.status !== "open" ? "disabled" : ""} ${entry.item.key === activeKey ? 'aria-current="true"' : ""}><span class="queue-number">${String(entry.index + 1).padStart(2, "0")}</span><span class="queue-artist">${esc(entry.item.name)}<small>${entry.item.status !== "open" ? esc(stackStatusLabel(entry.item.status)) : entry.item.slot === "wildcard" ? "Wildcard · " + esc(entry.item.tags?.[0] || "Further afield") : esc(entry.item.tags?.[0] || "Close match")}</small></span><span class="queue-indicator" aria-hidden="true">${entry.item.status === "open" ? "" : `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>`}</span></button></li>`).join("");
+    const queue = $("#stack-queue"), selected = queue.querySelector('[aria-current="true"]');
+    if (selected) {
+      const itemRect = selected.getBoundingClientRect(), queueRect = queue.getBoundingClientRect();
+      if (itemRect.top < queueRect.top || itemRect.bottom > queueRect.bottom) queue.scrollTop += itemRect.top - queueRect.top - (queue.clientHeight - itemRect.height) / 2;
+    }
+    box.hidden = !remaining.length;
+    $("#stack-more-row").hidden = !remaining.length || exhausted;
     $("#stack-more").disabled = dealing;
+    $("#stack-more").textContent = dealing ? "Finding more…" : "Add 5 more";
     $("#stack-sorted-section").hidden = !sorted.children.length;
-    done.hidden = Boolean(open);
-    if (open) return;
+    $("#focus-navigation").hidden = !remaining.length;
+    $("#focus-position").textContent = `${activeIndex + 1} of ${remaining.length} remaining`;
+    $("#stack-previous").disabled = activeIndex <= 0;
+    $("#stack-next").disabled = activeIndex >= remaining.length - 1;
+    done.hidden = Boolean(remaining.length);
+    if (remaining.length) {
+      entries.get(activeKey).el.querySelectorAll('[data-preview-state="unchecked"]').forEach(control => checkPreview(control));
+      return;
+    }
     const nextWeek = localDate(addDaysISO(week, 7)).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" });
-    done.innerHTML = `${all.length ? `<h2>All sorted.</h2><p>You kept ${kept} this week.</p>` : ""}
-      ${exhausted ? `<p>That’s everything near your taste for now. Add more favourites in <a href="#setup">Setup</a>, or try <a href="#explore">Explore</a>.</p>` : ""}
-      <p>Your next ten arrive on ${esc(nextWeek)}.</p>
-      ${exhausted ? "" : `<button class="primary" id="stack-deal" ${dealing ? "disabled" : ""}>Deal 5 more now</button>`}`;
+    done.innerHTML = `<h2>${all.length ? "A good place to pause." : "A wider world is waiting."}</h2><p>${all.length ? `All ${all.length} artists sorted. You kept ${all.filter(entry => entry.item.status === "kept").length} this week.` : "Add a few more favourites to give your next selection somewhere new to go."}</p>${exhausted ? `<p>That’s everything near your taste for now. Add favourites in <a href="#setup">Setup</a>, or try <a href="#explore">Explore</a>.</p>` : ""}<p>Your next ten arrive on ${esc(nextWeek)}.</p>${exhausted ? "" : `<button class="primary" id="stack-deal" ${dealing ? "disabled" : ""}>${dealing ? "Finding more…" : "Deal 5 more now"}</button>`}`;
   };
-
+  const selectArtist = (key, focus = false) => {
+    if (!entries.has(key) || entries.get(key).item.status !== "open") return;
+    if (activeKey !== key) stopPreview();
+    activeKey = key;
+    render();
+    if (focus) {
+      const card = entries.get(key).el;
+      card.querySelector(".rec-name").focus({ preventScroll: true });
+      if (matchMedia("(max-width: 760px)").matches) card.scrollIntoView({ block: "start", behavior: "instant" });
+    }
+  };
   const keeperRequests = latestRequest();
   const loadKeepers = async () => {
-    const token = keeperRequests.start();
-    const body = $("#keepers-body");
+    const token = keeperRequests.start(), body = $("#keepers-body");
     try {
       const data = await api("/api/kept");
       if (!keeperRequests.current(token) || !body.isConnected) return;
-      keepers = (data.items || []).map((item) => item.artist);
-      const line = scoreLine(data.score);
-      body.innerHTML = `${line ? `<p>${esc(line)}</p>` : ""}
-        ${keepers.length ? `<div class="row"><button id="share-keepers">Share list</button></div>
-          <ol class="songs" id="keepers-list">${keepers.map((artist) => `<li class="song" data-artist="${esc(artist)}"><div class="song-title">${esc(artist)}</div>${listenLink(artist)}</li>`).join("")}</ol>`
-          : `<p class="muted">Artists you keep are listed here, newest first.</p>`}`;
+      keepers = (data.items || []).map(item => item.artist);
+      body.innerHTML = keepers.length ? `<div class="keeper-tools"><span>${keepers.length} ${keepers.length === 1 ? "artist" : "artists"} kept</span><button id="share-keepers" class="quiet">Share list</button></div><ol class="songs" id="keepers-list">${keepers.map(artist => `<li class="song" data-artist="${esc(artist)}"><div class="song-title">${esc(artist)}</div>${listenLink(artist)}</li>`).join("")}</ol>` : `<div class="keeper-empty"><p>Your next favourite has a place here.</p><span>Choose Keep on an artist and they’ll stay in your collection.</span></div>`;
     } catch (err) {
-      if (keeperRequests.current(token) && body.isConnected) body.innerHTML = `<p class="error">Couldn’t load your keepers: ${esc(err.message)}</p>`;
+      if (keeperRequests.current(token) && body.isConnected) body.innerHTML = `<p class="error">Couldn’t load your keepers: ${esc(err.message)}</p><button id="retry-keepers">Try again</button>`;
     }
   };
   const shareKeepers = async () => {
     const text = keepers.join("\n");
     if (navigator.share) {
       try { await navigator.share({ title: "My Sideband keepers", text }); return; }
-      catch (err) { if (err?.name === "AbortError") return; /* otherwise copy or download instead */ }
+      catch (err) { if (err?.name === "AbortError") return; }
     }
     if (navigator.clipboard?.writeText) {
-      try { await navigator.clipboard.writeText(text); toast("Your keepers are copied. Paste them anywhere."); return; }
-      catch { /* fall back to a download */ }
+      try { await navigator.clipboard.writeText(text); toast("Your keepers are copied. Paste them anywhere."); return; } catch {}
     }
     const link = document.createElement("a");
     link.href = URL.createObjectURL(new Blob([`${text}\n`], { type: "text/plain" }));
     link.download = "sideband-keepers.txt";
     link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 60000);
   };
-
   const decide = async (row, act) => {
     const entry = entries.get(row.dataset.key);
     if (!entry || saving.has(entry.item.key)) return;
-    const { item, el } = entry;
-    const undo = act === "undo";
-    const buttons = [...row.querySelectorAll("button[data-stack]")];
-    const hadFocus = row.contains(document.activeElement); // before disabling, which can drop focus
+    const { item, el } = entry, undo = act === "undo", buttons = [...row.querySelectorAll("button[data-stack]")];
+    const hadFocus = row.contains(document.activeElement), selectionAtStart = activeKey;
     saving.add(item.key);
-    buttons.forEach((b) => { b.disabled = true; });
+    buttons.forEach(button => { button.disabled = true; });
     try {
       let status;
       if (act === "snooze" || (undo && item.status === "snoozed")) {
-        const res = await api("/api/stack/snooze", { method: "POST", body: { artist: item.name, on: !undo } });
-        status = res?.status || (undo ? "open" : "snoozed");
+        const result = await api("/api/stack/snooze", { method: "POST", body: { artist: item.name, on: !undo } });
+        status = result?.status || (undo ? "open" : "snoozed");
       } else {
         const verdict = undo ? "clear" : STACK_VERDICTS[act];
         const stats = await saveFeedback({ artist: item.name, track: "", verdict, context: item.context || {} });
         feedbackRevision += 1;
         rememberFeedback(stats);
         const identity = feedbackIdentity(item.name, "");
-        if (verdict === "clear") feedbackChoices.delete(identity);
-        else feedbackChoices.set(identity, verdict);
+        if (verdict === "clear") feedbackChoices.delete(identity); else feedbackChoices.set(identity, verdict);
         status = undo ? "open" : STACK_STATUS[verdict];
       }
       if (!here()) return;
+      const restoreFocus = hadFocus && activeKey === selectionAtStart && (row.contains(document.activeElement) || document.activeElement === document.body);
       item.status = status;
-      const nextCard = el.nextElementSibling || el.previousElementSibling;
       sorted.querySelector(`li[data-key="${CSS.escape(item.key)}"]`)?.remove();
       if (status === "open") {
         insertOpen(entry);
-      } else {
+        if (activeKey === selectionAtStart) { if (activeKey !== item.key) stopPreview(); activeKey = item.key; }
+      }
+      else {
         if (playingBtn && el.contains(playingBtn)) stopPreview();
-        el.remove();
-        sorted.append(toElement(sortedRow(item)));
+        const next = openEntries().find(candidate => candidate.index > entry.index) || openEntries()[0];
+        if (activeKey === item.key) activeKey = next?.item.key || null;
+        el.remove(); sorted.append(toElement(sortedRow(item)));
       }
       render();
-      if (hadFocus && (row.contains(document.activeElement) || document.activeElement === document.body || !document.activeElement)) {
-        const target = status === "open" ? el.querySelector("button[data-stack=keep]")
-          : (nextCard?.isConnected && nextCard.querySelector("button[data-stack=keep]")) || sorted.lastElementChild?.querySelector("button");
-        target?.focus({ preventScroll: status !== "open" });
+      toast(`${item.name}: ${undo ? "choice undone" : stackStatusLabel(status)}.`, 3500);
+      if (restoreFocus) {
+        const target = activeKey ? entries.get(activeKey).el.querySelector("button[data-stack=keep]") : $("#stack-deal") || sorted.lastElementChild?.querySelector("button");
+        target?.focus({ preventScroll: true });
+        if (undo && activeKey && matchMedia("(max-width: 760px)").matches) entries.get(activeKey).el.scrollIntoView({ block: "start", behavior: "instant" });
       }
       loadKeepers();
-    } catch (err) {
-      toast(`Couldn’t save that: ${err.message}`);
-    } finally {
-      saving.delete(item.key);
-      buttons.forEach((b) => { b.disabled = false; });
-    }
+    } catch (err) { toast(`Couldn’t save that: ${err.message}`); }
+    finally { saving.delete(item.key); buttons.forEach(button => { button.disabled = false; }); }
   };
-
   const moreSongs = async (btn, card) => {
-    btn.disabled = true;
-    btn.textContent = "Finding songs…";
+    const existing = card.querySelector(".stack-songs");
+    if (existing) {
+      existing.hidden = !existing.hidden;
+      btn.setAttribute("aria-expanded", String(!existing.hidden));
+      btn.textContent = existing.hidden ? "More songs" : "Hide songs";
+      if (existing.hidden && playingBtn && existing.contains(playingBtn)) stopPreview();
+      return;
+    }
+    btn.disabled = true; btn.textContent = "Finding songs…";
     card.querySelector(".stack-songs-error")?.remove();
     try {
       const data = await api(`/api/artist/tracks?name=${enc(card.dataset.artist)}&n=5`);
-      const items = data.items || [];
-      const list = toElement(items.length
-        ? `<ul class="songs stack-songs">${items.map((t) => `<li class="song" data-artist="${esc(t.artist)}" data-track="${esc(t.title)}">
-            <div class="song-title">${esc(t.title)}</div><div class="row">${previewControl()}${listenLink(t.artist, t.title)}</div></li>`).join("")}</ul>`
-        : `<p class="small muted stack-songs">No songs found for this artist yet.</p>`);
-      btn.closest(".rec-actions").after(list);
-      btn.hidden = true;
-      // Check these directly: re-observing the page would cancel other cards’ pending checks.
-      list.querySelectorAll("[data-preview-control]").forEach((control) => checkPreview(control));
+      if (!card.isConnected || !here()) { btn.textContent = "More songs"; return; }
+      const list = toElement(data.items?.length ? `<ul class="songs stack-songs">${data.items.map(track => `<li class="song" data-artist="${esc(track.artist)}" data-track="${esc(track.title)}"><div class="song-title">${esc(track.title)}</div><div class="row">${previewControl()}${listenLink(track.artist, track.title)}</div></li>`).join("")}</ul>` : `<p class="small muted stack-songs">No songs found for this artist yet. Try the link to your music service.</p>`);
+      list.id = `artist-songs-${card.dataset.index}`;
+      btn.after(list); btn.setAttribute("aria-controls", list.id); btn.setAttribute("aria-expanded", "true"); btn.textContent = "Hide songs";
+      list.querySelectorAll("[data-preview-control]").forEach(control => checkPreview(control));
     } catch (err) {
-      btn.closest(".rec-actions").after(toElement(`<p class="small error stack-songs-error" role="status">Couldn’t find songs: ${esc(err.message)}. Try again.</p>`));
-      btn.disabled = false;
-      btn.textContent = "More songs";
-    }
+      btn.after(toElement(`<p class="small error stack-songs-error" role="status">Couldn’t find songs: ${esc(err.message)}. Try again.</p>`)); btn.textContent = "More songs";
+    } finally { btn.disabled = false; }
   };
-
   const dealMore = async () => {
     if (dealing) return;
-    dealing = true;
-    render();
+    dealing = true; render();
     try {
       const data = await api("/api/stack/more", { method: "POST", body: { week: weekStart(), exploration, n: 5 } });
       if (!here()) return;
-      if (data.week !== week) { route(); return; } // a new week started while this page was open
-      const before = entries.size;
-      exhausted = Boolean(data.exhausted);
-      addItems(data.items || []);
-      if (entries.size > before) observePreviews();
-    } catch (err) {
-      toast(`Couldn’t deal more artists: ${err.message}`);
-    } finally {
-      dealing = false;
-      if (here()) render();
-    }
+      if (data.week !== week) { route(); return; }
+      exhausted = Boolean(data.exhausted); addItems(data.items || []);
+    } catch (err) { toast(`Couldn’t deal more artists: ${err.message}`); }
+    finally { dealing = false; if (here()) render(); }
   };
-
-  view.addEventListener("click", (e) => {
-    const btn = e.target.closest("button");
+  view.addEventListener("click", event => {
+    const btn = event.target.closest("button");
     if (!btn) return;
+    if (btn.dataset.queue) return selectArtist(btn.dataset.queue, true);
+    if (btn.id === "stack-previous" || btn.id === "stack-next") {
+      const remaining = openEntries(), index = remaining.findIndex(entry => entry.item.key === activeKey);
+      return selectArtist(remaining[index + (btn.id === "stack-next" ? 1 : -1)]?.item.key, true);
+    }
     if (btn.id === "stack-more" || btn.id === "stack-deal") return dealMore();
-    if (btn.id === "share-keepers") return shareKeepers().catch((err) => toast(err.message));
+    if (btn.id === "share-keepers") return shareKeepers().catch(err => toast(err.message));
+    if (btn.id === "retry-keepers") return loadKeepers();
     if (btn.dataset.act === "more-songs") return moreSongs(btn, btn.closest(".stack-card"));
     const row = btn.dataset.stack && btn.closest("li[data-key]");
     if (row) decide(row, btn.dataset.stack);
   });
-  $("#listen-on").addEventListener("change", (e) => {
-    listenOn = listenChoice(e.target.value);
-    store("mf.listenOn", listenOn);
-    // Sorted cards are kept off-page for Undo, so update them as well as the visible links.
-    for (const root of [main, ...[...entries.values()].map((entry) => entry.el)]) {
-      root.querySelectorAll("a[data-listen-open]").forEach((a) => {
-        a.href = listenUrl(listenOn, a.dataset.artist, a.dataset.track || "");
-        a.textContent = listenLabel();
-      });
-    }
+  // A service change also reaches the detached cards kept available for Undo.
+  view.addEventListener("sideband-service", () => {
+    for (const entry of entries.values()) updateListenLinks(entry.el);
   });
-
   const [data] = await Promise.all([api("/api/stack", { method: "POST", body: { week, exploration } }), loadFeedbackChoices()]);
   if (!here()) return;
-  week = data.week || week;
-  exhausted = Boolean(data.exhausted);
-  stopPreview();
-  box.innerHTML = "";
-  addItems(data.items || []);
-  render();
-  observePreviews();
-  loadKeepers();
+  week = data.week || week; exhausted = Boolean(data.exhausted);
+  stopPreview(); box.innerHTML = ""; addItems(data.items || []);
+  activeKey = store(`mf.focus.${week}`); render(); loadKeepers();
 }
 
 // ---------------------------------------------------------------- Songs
@@ -1257,26 +1255,74 @@ function savedChoiceRow(item) {
     <div class="song-why">${track ? "Song choice" : "Artist choice"}</div>${ratingStatus(item.artist, track, item.verdict)}</div>
     <div class="song-actions"><div class="row">${ratingButtons(item.artist, track, item.verdict)}</div>${listenLink(item.artist, track)}</div></li>`;
 }
+let savedChoiceItems = [];
 function savedChoices(fb) {
-  const items = fb.saved_items || [];
+  savedChoiceItems = fb.saved_items || [];
   return `<section class="section" id="saved-choices"><h2>Your saved choices</h2>
-    <p>Change a choice or Undo it here, including songs that disappeared after you refreshed. Song and artist choices stay separate.</p>
-    ${items.length ? `<ol class="songs" id="saved-choices-list">${items.slice(0, 30).map(savedChoiceRow).join("")}</ol>
-      ${items.length > 30 ? `<button id="more-saved-choices">Show all ${fmt(items.length)} saved choices</button>` : ""}` : `<p class="muted">Your song and artist ratings will appear here.</p>`}</section>`;
+    <p>Find a song or artist, change your choice, or undo it. Song and artist choices stay separate.</p>
+    ${savedChoiceItems.length ? `<form class="taste-filters" id="taste-filters" role="search" aria-label="Find saved choices">
+      <div class="taste-search"><label for="choice-search">Find an artist or song</label><input id="choice-search" type="search" placeholder="Search your choices…" autocomplete="off" spellcheck="false" aria-controls="saved-choices-list"></div>
+      <div class="taste-verdict"><label for="choice-verdict">Your choice</label><select id="choice-verdict" aria-controls="saved-choices-list"><option value="all">Any choice</option><option value="like">Liked</option><option value="dislike">Not for me</option><option value="known">Already know</option></select></div>
+      <div class="taste-scopes" role="group" aria-label="Type of saved choice"><button type="button" data-choice-scope="all" aria-pressed="true" aria-controls="saved-choices-list">All choices</button><button type="button" data-choice-scope="artist" aria-pressed="false" aria-controls="saved-choices-list">Artists</button><button type="button" data-choice-scope="song" aria-pressed="false" aria-controls="saved-choices-list">Songs</button></div>
+      <p id="choice-count" class="small muted" role="status" aria-live="polite" aria-atomic="true"></p>
+    </form>
+    <ol class="songs" id="saved-choices-list"></ol>
+    <div id="choices-empty" class="taste-no-matches" hidden><p>No choices match these filters.</p><button id="reset-choice-filters" type="button">Clear filters</button></div>
+    <button id="more-saved-choices" type="button" hidden>Show more choices</button>` : `<p class="muted">Your song and artist ratings will appear here.</p>`}</section>`;
 }
 function bindSavedChoices() {
-  const button = $("#more-saved-choices");
-  if (!button) return;
-  button.addEventListener("click", async () => {
-    button.disabled = true;
-    try {
-      const fb = await feedbackAccess.read();
-      if (!button.isConnected) return;
-      rememberFeedback(fb);
-      $("#saved-choices-list").innerHTML = (fb.saved_items || []).map(savedChoiceRow).join("");
-      button.remove();
-    } catch (err) { toast(err.message); button.disabled = false; }
+  const form = $("#taste-filters");
+  if (!form) return;
+  const search = $("#choice-search");
+  const verdict = $("#choice-verdict");
+  const list = $("#saved-choices-list");
+  const more = $("#more-saved-choices");
+  const count = $("#choice-count");
+  const empty = $("#choices-empty");
+  const scopes = [...form.querySelectorAll("[data-choice-scope]")];
+  let scope = "all";
+  let limit = 30;
+  const render = () => {
+    // Read the current choices so changing a filter never restores an old rating
+    // or resurrects a choice the listener just undid.
+    const current = savedChoiceItems.flatMap((item) => {
+      const choice = feedbackChoices.get(feedbackIdentity(item.artist, item.track || ""));
+      return choice ? [{ ...item, verdict: choice }] : [];
+    });
+    const matching = filterSavedChoices(current, { query: search.value, scope, verdict: verdict.value });
+    const shown = matching.slice(0, limit);
+    list.innerHTML = shown.map(savedChoiceRow).join("");
+    list.hidden = !shown.length;
+    empty.hidden = Boolean(shown.length);
+    const filtered = search.value.trim() || scope !== "all" || verdict.value !== "all";
+    count.textContent = matching.length
+      ? `Showing ${fmt(shown.length)} of ${fmt(matching.length)} ${filtered ? "matching" : "saved"} choice${matching.length === 1 ? "" : "s"}.`
+      : `No matches among ${fmt(current.length)} saved choice${current.length === 1 ? "" : "s"}.`;
+    more.hidden = matching.length <= limit;
+    more.textContent = `Show ${fmt(Math.min(30, matching.length - limit))} more choices`;
+    scopes.forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.choiceScope === scope)));
+  };
+  const filter = () => { limit = 30; render(); };
+  form.addEventListener("submit", (event) => event.preventDefault());
+  search.addEventListener("input", filter);
+  verdict.addEventListener("change", filter);
+  scopes.forEach((button) => button.addEventListener("click", () => { scope = button.dataset.choiceScope; filter(); }));
+  more.addEventListener("click", () => {
+    const previous = list.children.length;
+    limit += 30;
+    render();
+    // Move into the newly revealed choices rather than dropping keyboard focus
+    // when the final Show more button disappears.
+    list.children[previous]?.querySelector("button")?.focus({ preventScroll: true });
   });
+  $("#reset-choice-filters").addEventListener("click", () => {
+    search.value = "";
+    verdict.value = "all";
+    scope = "all";
+    filter();
+    search.focus();
+  });
+  render();
 }
 async function viewTaste() {
   const mine = routeSeq;

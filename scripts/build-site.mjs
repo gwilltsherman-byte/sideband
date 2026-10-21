@@ -17,7 +17,7 @@ const web = path.join(root, "musicfinder", "web");
 
 // Python modules the browser never needs (local web server and command line).
 const SKIP_PY = new Set(["musicfinder/server.py", "musicfinder/cli.py", "musicfinder/__main__.py"]);
-const WEB_FILES = ["app.js", "ui-state.js", "artist-picker.js", "listening-signals.js", "preview-state.js", "browser-api.js", "worker.js", "style.css", "manifest.webmanifest",
+const WEB_FILES = ["app.js", "ui-state.js", "artist-picker.js", "listening-signals.js", "preview-state.js", "browser-api.js", "worker.js", "style.css", "listening-desk.css", "taste-filters.css", "manifest.webmanifest",
   "brand-mark.svg", "favicon.svg", "icon-180.png", "icon-192.png", "icon-512.png", "dm-sans-regular.ttf", "dm-sans-semibold.ttf", "fraunces-medium.ttf", "dm-sans-OFL.txt", "fraunces-OFL.txt"];
 const PYODIDE_FILES = ["pyodide.mjs", "pyodide.asm.mjs", "pyodide.asm.wasm", "python_stdlib.zip", "pyodide-lock.json"];
 
@@ -92,7 +92,7 @@ async function main() {
   ].join("\n  ");
   if (!html.includes("</head>")) throw new Error("index.html has no </head>");
   html = html.replaceAll('="/static/', '="./static/');
-  for (const f of ["app.js", "style.css", "favicon.svg"]) html = html.replaceAll(`="./static/${f}"`, `="./static/${f}?v=${version}"`);
+  for (const f of ["app.js", "style.css", "listening-desk.css", "taste-filters.css", "favicon.svg"]) html = html.replaceAll(`="./static/${f}"`, `="./static/${f}?v=${version}"`);
   html = html.replace("</head>", `  ${head}\n</head>`);
   await writeFile(path.join(out, "index.html"), html);
   await writeFile(path.join(out, ".nojekyll"), "");
