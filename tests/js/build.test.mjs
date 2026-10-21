@@ -11,7 +11,10 @@ test("published HTML and module dependencies request the same content version", 
   const { version } = JSON.parse(await readFile(new URL("py/manifest.json", root), "utf8"));
   const html = await readFile(new URL("index.html", root), "utf8");
   const app = await readFile(new URL("static/app.js", root), "utf8");
-  for (const asset of ["app.js", "style.css", "listening-desk.css", "taste-filters.css", "favicon.svg"]) assert.ok(html.includes(`./static/${asset}?v=${version}`));
+  for (const asset of ["app.js", "style.css", "listening-desk.css", "taste-filters.css", "favicon.svg", "icon-180.png", "manifest.webmanifest"]) assert.ok(html.includes(`./static/${asset}?v=${version}`));
+  assert.equal((html.match(/rel="apple-touch-icon"/g) || []).length, 1);
+  const manifest = JSON.parse(await readFile(new URL("static/manifest.webmanifest", root), "utf8"));
+  assert.deepEqual(manifest.icons.map(icon => icon.src), [192, 512].map(size => `icon-${size}.png?v=${version}`));
   for (const dependency of ["ui-state.js", "artist-picker.js", "listening-signals.js", "preview-state.js", "browser-api.js"]) assert.ok(app.includes(`./${dependency}?v=${version}`));
   const picker = await readFile(new URL("static/artist-picker.js", root), "utf8");
   assert.ok(picker.includes("artistChoices"));
@@ -32,6 +35,17 @@ test("published HTML and module dependencies request the same content version", 
   await once(server, "listening");
   const base = `http://127.0.0.1:${server.address().port}`;
   try {
+    for (const size of [180, 192, 512]) {
+      const asset = `icon-${size}.png`;
+      const source = await readFile(new URL(`../../musicfinder/web/${asset}`, import.meta.url));
+      assert.ok(sw.includes(`static/${asset}`));
+      assert.equal(source.readUInt32BE(16), size);
+      assert.equal(source.readUInt32BE(20), size);
+      const response = await fetch(`${base}/static/${asset}?v=${version}`);
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("content-type"), "image/png");
+      assert.deepEqual(Buffer.from(await response.arrayBuffer()), source);
+    }
     for (const asset of ["brand-mark.svg", "favicon.svg"]) {
       const source = await readFile(new URL(`../../musicfinder/web/${asset}`, import.meta.url), "utf8");
       const published = await readFile(new URL(`static/${asset}`, root), "utf8");
