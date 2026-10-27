@@ -1,0 +1,9 @@
+{
+  "name": "Sideband",
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.12-bookworm",
+  "features": {"ghcr.io/devcontainers/features/node:1": {"version": "22"}},
+  "forwardPorts": [8765],
+  "portsAttributes": {"8765": {"label": "Sideband", "onAutoForward": "openPreview"}},
+  "postCreateCommand": "npm ci --ignore-scripts && npm run build",
+  "postStartCommand": "bash .devcontainer/start.sh"
+}

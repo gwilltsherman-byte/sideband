@@ -1,0 +1,203 @@
+// Browser end-to-end test of the hosted build, on an emulated phone: start instantly from a few
+// picked artists (no Spotify export, no API key), sort this week's artists, then add an export later.
+//   node tests/e2e_site.mjs http://127.0.0.1:8888 path/to/my_spotify_data.zip out_dir '["Artist", ...]'
+import { execSync } from "node:child_process";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+const { chromium, devices } = require(execSync("npm root -g").toString().trim() + "/playwright");
+const [base, zipPath, outDir, picksJson] = process.argv.slice(2);
+const picks = JSON.parse(picksJson);
+const t0 = Date.now();
+const log = (...a) => console.log(`[${((Date.now() - t0) / 1000).toFixed(1)}s]`, ...a);
+const check = (cond, msg) => { if (!cond) throw new Error("FAILED: " + msg); log("ok:", msg); };
+
+const browser = await chromium.launch({ args: ["--no-proxy-server"] });
+const context = await browser.newContext({ ...devices["iPhone 13"] });
+const page = await context.newPage();
+const errors = [];
+page.on("pageerror", (e) => errors.push(String(e)));
+page.on("console", (m) => { if (m.type() === "error" && !/fonts\.g/.test(m.text())) errors.push(m.text()); });
+
+async function waitForJob(limitMs) {
+  await page.waitForSelector("#job-strip:not([hidden])", { timeout: 30_000 });
+  let lastStep = "";
+  const start = Date.now();
+  while (await page.locator("#job-strip:not([hidden])").count()) {
+    const step = await page.locator("#job-step").innerText().catch(() => "");
+    if (step !== lastStep) { log("progress:", step, await page.locator("#job-count").innerText().catch(() => "")); lastStep = step; }
+    await page.waitForTimeout(1000);
+    if (Date.now() - start > limitMs) throw new Error("job took too long");
+  }
+  return (Date.now() - start) / 1000;
+}
+
+await page.goto(base + "/");
+await page.waitForSelector("#artist-grid button", { timeout: 120_000 });
+check(true, "engine booted and showed Setup");
+check((await page.locator("#key, input[type=password]").count()) === 0, "no API key to enter");
+check(await page.locator("#build").isDisabled(), "nothing to build before any pick");
+
+// 1. Instant start: pick favourites by searching for them.
+// This synthetic catalog uses generated names, reached through the main artist search.
+for (const name of picks) {
+  await page.fill("#pick-q", name.toLowerCase());
+  const row = page.locator(`#pick-results li[data-name="${name.replace(/"/g, '\\"')}"]`);
+  await row.waitFor({ timeout: 30_000 });
+  await row.locator("button[data-pick=love]").click();
+  await page.waitForFunction((n) => [...document.querySelectorAll("#pick-chips .pick-chip.love")].some((c) => c.textContent.includes(n)), name, { timeout: 30_000 });
+}
+check(true, `picked ${picks.length} favourite artists by searching`);
+await page.screenshot({ path: `${outDir}/site-picks.png` });
+
+await page.click("#build");
+log(`map from picks built in ${(await waitForJob(600_000)).toFixed(0)}s`);
+
+// This week: a stack of unfamiliar artists to sort one by one.
+await page.waitForSelector(".stack-card", { timeout: 120_000 });
+check(new URL(page.url()).hash === "#this-week", "lands on This week after building");
+check((await page.locator(".view-head").innerText()).includes("you picked"), "This week says what it is based on");
+const stackNames = async () => page.locator("#stack-open .stack-card .rec-name").allInnerTexts();
+const sortedText = async () => page.locator("#stack-sorted").innerText().catch(() => "");
+const progressText = async () => page.locator("#stack-progress").innerText();
+const dealt = await stackNames();
+check(dealt.length >= 5, `${dealt.length} artists dealt for this week`);
+check(!dealt.some((r) => picks.includes(r)), "picked artists are not dealt back");
+const total = dealt.length;
+check(await progressText() === `0 of ${total} sorted`, "progress starts at none sorted");
+const card = (name) => page.locator(`.stack-card[data-artist="${name.replace(/"/g, '\\"')}"]`);
+const sortedRow = (name) => page.locator(`#stack-sorted li[data-artist="${name.replace(/"/g, '\\"')}"]`);
+
+await card(dealt[0]).locator("button[data-stack=keep]").click();
+await sortedRow(dealt[0]).waitFor({ timeout: 60_000 });
+check(!(await stackNames()).includes(dealt[0]), "a kept artist leaves the open stack");
+check((await sortedRow(dealt[0]).innerText()).includes("Kept"), "the kept artist is listed as Kept");
+check(await progressText() === `1 of ${total} sorted`, "progress counts the kept artist");
+await page.waitForFunction((n) => [...document.querySelectorAll("#keepers-list li")].some((li) => li.dataset.artist === n), dealt[0], { timeout: 60_000 });
+check(true, "the kept artist appears in Your keepers");
+await sortedRow(dealt[0]).locator("button[data-stack=undo]").click();
+await card(dealt[0]).locator("button[data-stack=keep]").waitFor({ timeout: 60_000 });
+check((await stackNames())[0] === dealt[0], "Undo returns the artist to its place in the stack");
+check(await progressText() === `0 of ${total} sorted`, "progress drops after Undo");
+
+await card(dealt[1]).locator("button[data-stack=pass]").click();
+await sortedRow(dealt[1]).waitFor({ timeout: 60_000 });
+check((await sortedRow(dealt[1]).innerText()).includes("Passed"), "a passed artist is listed as Passed");
+await card(dealt[2]).locator("button[data-stack=snooze]").click();
+await sortedRow(dealt[2]).waitFor({ timeout: 60_000 });
+check((await sortedRow(dealt[2]).innerText()).includes("Not now"), "a snoozed artist is listed as Not now");
+check(await progressText() === `2 of ${total} sorted`, "progress counts each sorted artist");
+await page.screenshot({ path: `${outDir}/site-this-week.png` });
+
+await page.reload();
+await page.waitForSelector(".stack-card", { timeout: 120_000 });
+await page.waitForFunction(() => document.querySelectorAll("#stack-sorted li").length === 2, null, { timeout: 60_000 });
+check(await progressText() === `2 of ${total} sorted`, "sorted choices survive a reload");
+check((await sortedRow(dealt[1]).innerText()).includes("Passed") && (await sortedRow(dealt[2]).innerText()).includes("Not now"), "statuses survive a reload");
+check(JSON.stringify(await stackNames()) === JSON.stringify(dealt.filter((_, i) => i !== 1 && i !== 2)), "the same artists are shown after a reload");
+
+// For you: the full ranked list is still available.
+await page.goto(base + "/#for-you");
+await page.waitForSelector(".rec", { timeout: 60_000 });
+check(await page.locator("#batch-size").inputValue() === "10", "starts with a manageable list of ten artists");
+await page.selectOption("#batch-size", "30");
+await page.waitForFunction(() => document.querySelectorAll(".rec").length >= 20, null, { timeout: 60_000 });
+let recs = await page.locator(".rec-name").allInnerTexts();
+check(recs.length >= 20, `${recs.length} recommendations from picks alone`);
+check(!recs.some((r) => picks.includes(r)), "picked artists are not recommended back");
+check((await page.locator(".view-head").innerText()).includes("you picked"), "says what the picks are based on");
+await page.screenshot({ path: `${outDir}/site-foryou-picks.png` });
+
+await page.locator(".rec").first().locator("button[data-act=like]").click();
+await page.waitForFunction(() => document.querySelector(".rec button[data-act=like]")?.getAttribute("aria-pressed") === "true", null, { timeout: 60_000 });
+check(true, "rating saved");
+await page.locator(".rec").first().locator("button[data-act=undo]").click();
+await page.waitForFunction(() => document.querySelector(".rec button[data-act=like]")?.getAttribute("aria-pressed") === "false", null, { timeout: 60_000 });
+check(await page.locator(".rec").first().locator("button[data-act=undo]").isHidden(), "rating can be undone without deleting the other ratings");
+await page.locator(".rec").first().locator("button[data-act=like]").click();
+await page.waitForFunction(() => document.querySelector(".rec button[data-act=like]")?.getAttribute("aria-pressed") === "true", null, { timeout: 60_000 });
+
+await page.goto(base + "/#songs");
+await page.waitForSelector(".song", { timeout: 120_000 });
+check((await page.locator(".song").count()) > 10, "songs listed");
+
+await page.goto(base + "/#explore");
+await page.waitForSelector("#tag-form", { timeout: 60_000 });
+await page.fill("#tag-input", "jazz");
+await page.click("#tag-form button");
+await page.waitForSelector("#tag-result .rec", { timeout: 120_000 });
+check(true, "genre search returned gateway artists");
+
+await page.goto(base + "/#taste");
+await page.waitForSelector("text=Your taste so far", { timeout: 60_000 });
+check(true, "taste page works with picks only");
+
+await page.goto(base + "/#accuracy");
+await page.waitForSelector("#run-eval", { timeout: 60_000 });
+check(await page.locator("#run-eval").isDisabled(), "the replay test waits for an imported listening history");
+
+// 2. Optional extra: a Spotify listening history is imported later, and the map is updated with it.
+await page.goto(base + "/#setup");
+await page.locator("#history-details summary").click();
+await page.waitForSelector("#drop", { timeout: 60_000 });
+await page.setInputFiles("#files", zipPath);
+await page.waitForFunction(() => /plays \(/.test(document.querySelector("#file-log")?.textContent || ""), null, { timeout: 180_000 });
+log("import:", await page.locator("#file-log").innerText());
+await page.waitForFunction(() => /Update|Improve/.test(document.querySelector("#build")?.textContent || ""), null, { timeout: 30_000 });
+check(true, "offers to update the recommendations");
+check((await page.locator("#pick-chips .pick-chip.love").count()) === picks.length, "picks kept after importing");
+await page.click("#build");
+log(`map with history built in ${(await waitForJob(900_000)).toFixed(0)}s`);
+await page.waitForSelector(".stack-card", { timeout: 120_000 });
+// The For you rating above can also sort one of these artists (statuses follow every rating), so
+// compare the whole batch: the artists still open plus the ones already sorted.
+{
+  const open = await stackNames();
+  const done = await page.locator("#stack-sorted li").evaluateAll((els) => els.map((el) => el.dataset.artist));
+  log("open after import:", JSON.stringify(open), "sorted:", JSON.stringify(done));
+  check(JSON.stringify([...open, ...done].sort()) === JSON.stringify([...dealt].sort()), "this week’s artists stay the same after importing history");
+  check(JSON.stringify(open) === JSON.stringify(dealt.filter((name) => open.includes(name))), "the open artists keep their order after importing history");
+}
+await page.goto(base + "/#for-you");
+await page.waitForSelector(".rec", { timeout: 60_000 });
+await page.waitForFunction(() => document.querySelectorAll(".rec").length >= 20, null, { timeout: 60_000 });
+recs = await page.locator(".rec-name").allInnerTexts();
+check(recs.length >= 20, `${recs.length} recommendations with history`);
+await page.screenshot({ path: `${outDir}/site-foryou.png` });
+
+await page.goto(base + "/#taste");
+await page.waitForSelector(".tiles", { timeout: 60_000 });
+check(true, "taste profile rendered");
+
+// a fresh visit must find everything saved in the browser
+await page.goto("about:blank");
+await page.waitForTimeout(1500);
+await page.goto(base + "/#for-you");
+await page.waitForSelector(".rec", { timeout: 120_000 });
+check(await page.locator(".rec-name").first().innerText() !== "", "data and map survived a page reload");
+check(await page.locator("#batch-size").inputValue() === "30", "artists-per-list preference survives a page reload");
+
+await page.goto(base + "/#accuracy");
+await page.waitForSelector("#run-eval", { timeout: 60_000 });
+await page.click("#run-eval");
+const evalStart = Date.now();
+// With every lookup cached the test can finish before the first progress poll, so the progress
+// strip may never appear: wait for the strip or for the job's closing message.
+const evalDone = () => /Accuracy test finished|Testing accuracy on your own history failed/.test(document.querySelector("#toast")?.textContent || "");
+await page.waitForFunction(() => !document.querySelector("#job-strip").hidden
+  || /Accuracy test finished|Testing accuracy on your own history failed/.test(document.querySelector("#toast")?.textContent || ""), null, { timeout: 30_000 });
+while (await page.locator("#job-strip:not([hidden])").count()) {
+  await page.waitForTimeout(2000);
+  if (Date.now() - evalStart > 1_500_000) throw new Error("accuracy test took too long");
+}
+await page.waitForFunction(evalDone, null, { timeout: 30_000 });
+check((await page.locator("#toast").textContent()).includes("Accuracy test finished"), "the accuracy test finished without an error");
+log(`accuracy test finished in ${((Date.now() - evalStart) / 1000).toFixed(0)}s`);
+await page.goto(base + "/#accuracy");
+await page.waitForSelector(".summary p", { timeout: 60_000 });
+log("summary:", (await page.locator(".summary p").first().innerText()).slice(0, 200));
+await page.screenshot({ path: `${outDir}/site-accuracy.png`, fullPage: false });
+
+check(errors.length === 0, "no page errors" + (errors.length ? ": " + errors.join(" | ") : ""));
+await browser.close();
+log("ALL PASSED");

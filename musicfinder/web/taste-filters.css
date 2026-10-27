@@ -1,0 +1,32 @@
+/* Finding a past decision is a reading task: a quiet, flat index above the list. */
+#saved-choices .taste-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 190px);
+  gap: 16px 24px;
+  margin: 24px 0 0;
+  padding: 0 0 20px;
+  border-bottom: 1px solid var(--line-strong);
+}
+#saved-choices .taste-search,
+#saved-choices .taste-verdict { display: grid; gap: 6px; min-width: 0; }
+#saved-choices .taste-filters label { font-size: .875rem; font-weight: 600; }
+#saved-choices .taste-search input,
+#saved-choices .taste-verdict select { width: 100%; min-width: 0; }
+#saved-choices .taste-scopes { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+#saved-choices .taste-scopes button { min-height: 44px; padding: 8px 14px; }
+#saved-choices .taste-scopes button[aria-pressed=true] {
+  background: var(--selection);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+#saved-choices #choice-count { align-self: center; margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+#saved-choices .taste-no-matches { padding: 28px 0; }
+#saved-choices .taste-no-matches p { margin-top: 0; }
+#saved-choices #more-saved-choices { margin-top: 20px; }
+@media (max-width: 650px) {
+  #saved-choices .taste-filters { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  #saved-choices .taste-verdict { grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 16px; }
+  #saved-choices .taste-scopes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  #saved-choices .taste-scopes button { padding-inline: 8px; }
+  #saved-choices #choice-count { text-align: left; }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "sideband-site",
+  "private": true,
+  "description": "Sideband browser app with a separate music lookup server.",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build-site.mjs",
+    "test:js": "node --test tests/js/*.test.mjs",
+    "serve": "node server/serve.mjs",
+    "relay": "node server/serve.mjs --relay-only"
+  },
+  "dependencies": {
+    "pyodide": "314.0.7"
+  }
+}

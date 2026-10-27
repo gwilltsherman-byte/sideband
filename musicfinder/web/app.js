@@ -1,0 +1,2083 @@
+// Sideband single-page UI. Plain ES module, no build step.
+import { explorationChoice, batchChoice, nextRecommendationAction, latestRequest, quickReviewCurrent, quickInputKind,
+  filterSavedChoices, weekStart, addDaysISO, LISTEN_SERVICES, listenChoice, listenUrl, stackStatusLabel } from "./ui-state.js";
+import { ARTIST_STYLES, artistChoices, artistIdentity } from "./artist-picker.js";
+import { previewObservation, feedbackIdentity, feedbackIO } from "./listening-signals.js";
+import { previewAvailability, previewInViewport } from "./preview-state.js";
+
+const $ = (sel, root = document) => root.querySelector(sel);
+const main = $("#main");
+// The hosted  build runs the engine inside the browser instead of talking to a local server.
+const BROWSER = window.MUSICFINDER_MODE === "browser";
+const engine = BROWSER ? await import("./browser-api.js") : null;
+window.addEventListener("sideband-status", event => toast(event.detail, 12000));
+const WHERE = BROWSER ? "in this browser on this device" : "on this computer";
+// iPhone/iPad: a Home Screen web app keeps its own storage, separate from Safari's.
+const IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const STANDALONE = (window.matchMedia && matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true;
+const player = $("#player");
+let state = null;
+let importing = false;
+let quickSaving = false;
+// Serialize explicit picks so fast taps cannot overwrite a later choice.
+let pickQueue = Promise.resolve();
+let pickSaving = 0;
+let savedPicks = null;
+let pickIntents = [];
+let pickIntentSeq = 0;
+
+const FEATURE_NAMES = {
+  cf: "Similar to artists you play a lot",
+  cf_recent: "Similar to what you play lately",
+  ppr: "Central to your taste network",
+  support: "Linked from many of your artists",
+  tag: "Matches your genre profile",
+  pop: "Popularity",
+  neg: "Similar to music you dislike or skip",
+  agree: "Sources agree",
+};
+
+// ---------------------------------------------------------------- utilities
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const enc = encodeURIComponent;
+const pct = (x, digits = 0) => (x == null ? "n/a" : `${(x * 100).toFixed(digits)}%`);
+const fmt = (n) => (n == null ? "—" : Number(n).toLocaleString());
+const compact = (n) => (n == null ? "—" : Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(n));
+const listJoin = (items) => (items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
+// Every listen link opens the listener's chosen service (This week's "Listen on" choice).
+let listenOn = listenChoice(store("mf.listenOn"));
+const externalIcon = '<svg class="external-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg>';
+const listenLabel = () => `Open in ${LISTEN_SERVICES[listenOn]}`;
+const listenLink = (artist, track = "", label = listenLabel()) => `<a class="button" href="${esc(listenUrl(listenOn, artist, track))}" target="_blank" rel="noopener" data-listen-open data-artist="${esc(artist)}" data-track="${esc(track)}">${esc(label)}${externalIcon}</a>`;
+function updateListenLinks(root = main) {
+  root.querySelectorAll("a[data-listen-open]").forEach(link => {
+    link.href = listenUrl(listenOn, link.dataset.artist, link.dataset.track || "");
+    link.innerHTML = `${esc(listenLabel())}${externalIcon}`;
+  });
+}
+const listenSelect = $("#listen-on");
+listenSelect.innerHTML = Object.entries(LISTEN_SERVICES).map(([id, label]) => `<option value="${id}" ${id === listenOn ? "selected" : ""}>${label}</option>`).join("");
+listenSelect.addEventListener("change", () => {
+  listenOn = listenChoice(listenSelect.value);
+  store("mf.listenOn", listenOn);
+  updateListenLinks();
+  $("#stack-view")?.dispatchEvent(new Event("sideband-service"));
+  toast(`Listen links now open in ${LISTEN_SERVICES[listenOn]}.`);
+});
+const feedbackChoices = new Map();
+const feedbackSaving = new Set();
+const feedbackAccess = feedbackIO({
+  read: () => api("/api/feedback"),
+  write: (body) => api("/api/feedback", { method: "POST", body }),
+});
+let feedbackRevision = 0;
+function rememberFeedback(stats) {
+  if (!Array.isArray(stats.saved_items)) return;
+  feedbackChoices.clear();
+  for (const item of stats.saved_items) feedbackChoices.set(feedbackIdentity(item.artist, item.track), item.verdict);
+}
+function saveFeedback(body) {
+  return feedbackAccess.save(body);
+}
+async function loadFeedbackChoices() {
+  try { rememberFeedback(await feedbackAccess.read()); } catch { /* a later rating can retry */ }
+}
+function savedVerdict(item, artist, track = "") {
+  const verdict = typeof item?.feedback === "string" ? item.feedback : item?.feedback?.verdict;
+  return verdict || feedbackChoices.get(feedbackIdentity(artist, track)) || "";
+}
+function ratingMessage(verdict, song = false) {
+  return (song ? {
+    like: "Liked this song. It now helps shape your taste and related recommendations.",
+    dislike: "Disliked this song. It won’t appear again and similar music moves down. Other songs by this artist can still appear.",
+    known: "Already know this song. It won’t appear again; this doesn’t count as a like or dislike.",
+    clear: "Song choice removed. It can appear again.",
+  } : {
+    like: "Liked this artist. Similar music moves up in your recommendations.",
+    dislike: "Disliked this artist. They won’t appear again and similar artists move down.",
+    known: "Already know this artist. They won’t appear again; this doesn’t count as a like or dislike.",
+    clear: "Artist choice removed. They can appear again.",
+  })[verdict] || "";
+}
+function ratingButtons(artist, track = "", verdict = "") {
+  const song = Boolean(track);
+  const label = song ? `“${track}” by ${artist}` : artist;
+  return `<button data-act="like" aria-label="Like ${song ? "this song: " : ""}${esc(label)}" aria-pressed="${verdict === "like"}">Like</button>
+    <button data-act="dislike" aria-label="Dislike ${song ? "this song: " : "this artist: "}${esc(label)}" aria-pressed="${verdict === "dislike"}">${song ? "Dislike" : "Not for me"}</button>
+    <button data-act="known" class="quiet" aria-label="Already know ${esc(label)}" aria-pressed="${verdict === "known"}">Already know${song ? "" : " them"}</button>`;
+}
+function ratingStatus(artist, track = "", verdict = "") {
+  return `<div class="rec-state" role="status"><span>${esc(ratingMessage(verdict, Boolean(track)))}</span> <button data-act="undo" class="quiet" ${verdict ? "" : "hidden"} aria-label="Undo ${track ? "song" : "artist"} choice for ${esc(track || artist)}">Undo</button></div>`;
+}
+const learningCopy = "Ratings shape your taste; preview listening and music links add weaker interest signals.";
+
+function store(key, value) {
+  try {
+    if (value === undefined) return localStorage.getItem(key);
+    localStorage.setItem(key, value);
+  } catch { /* private mode */ }
+  return null;
+}
+
+const themeSelect = document.querySelector("#theme-select");
+if (themeSelect) {
+  themeSelect.value = ["light", "dark"].includes(store("mf.theme")) ? store("mf.theme") : "system";
+  themeSelect.addEventListener("change", () => {
+    const theme = themeSelect.value;
+    store("mf.theme", theme);
+    if (theme === "system") delete document.documentElement.dataset.theme;
+    else document.documentElement.dataset.theme = theme;
+  });
+}
+
+class ApiError extends Error {
+  constructor(status, message) { super(message); this.status = status; }
+}
+
+async function api(path, { method = "GET", body, headers = {} } = {}) {
+  if (engine) {
+    const { status, payload } = await engine.request(method, path, body, headers);
+    if (status >= 400) throw new ApiError(status, (payload && payload.error) || `Error ${status}`);
+    return payload;
+  }
+  const opts = { method, headers: { ...headers } };
+  if (method !== "GET") opts.headers["X-MusicFinder"] = "1";
+  if (body !== undefined) {
+    if (body instanceof Blob) opts.body = body;
+    else { opts.body = JSON.stringify(body); opts.headers["Content-Type"] = "application/json"; }
+  }
+  const res = await fetch(path, opts);
+  let data = null;
+  try { data = await res.json(); } catch { /* empty body */ }
+  if (!res.ok) throw new ApiError(res.status, (data && data.error) || res.statusText);
+  return data;
+}
+
+let toastTimer;
+function toast(msg, ms = 4000) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.hidden = true; }, ms);
+}
+
+// tooltip for any element with data-tip (chart marks, meter segments)
+const tip = $("#tooltip");
+document.addEventListener("pointerover", (e) => {
+  const el = e.target.closest("[data-tip]");
+  if (!el) return;
+  tip.textContent = el.getAttribute("data-tip");
+  tip.hidden = false;
+});
+document.addEventListener("pointermove", (e) => {
+  if (tip.hidden) return;
+  const x = Math.min(window.innerWidth - tip.offsetWidth - 8, e.clientX + 14);
+  tip.style.left = `${x}px`;
+  tip.style.top = `${e.clientY + 16}px`;
+});
+document.addEventListener("pointerout", (e) => { if (e.target.closest("[data-tip]")) tip.hidden = true; });
+
+// ---------------------------------------------------------------- state & jobs
+async function refreshState() {
+  state = await api("/api/state");
+  $("#demo-strip").hidden = !state.demo;
+  $("#service-strip").hidden = state.lookup_available !== false;
+  if (state.job.running) watchJob();
+  return state;
+}
+
+const JOB_LABEL = { build: "Building your music map", evaluate: "Testing accuracy on your own history", prepare: "Improving your recommendations" };
+let polling = false;
+async function watchJob() {
+  if (polling) return;
+  polling = true;
+  const strip = $("#job-strip");
+  let failed = false;
+  try {
+    for (;;) {
+      const job = await api("/api/job");
+      strip.hidden = !job.running;
+      if (job.running) {
+        $("#job-step").textContent = `${JOB_LABEL[job.name] || "Working"} — ${job.step}`;
+        $("#job-bar").style.width = job.total ? `${Math.round((100 * job.done) / job.total)}%` : "3%";
+        $("#job-count").textContent = job.total ? `${job.done}/${job.total}` : "";
+        await new Promise((r) => setTimeout(r, 700));
+        continue;
+      }
+      if (job.error) toast(`${JOB_LABEL[job.name] || "Job"} failed: ${job.error}`, 9000);
+      else if (job.name) toast(job.name === "evaluate" ? "Accuracy test finished." : "Your recommendations are ready.");
+      break;
+    }
+  } catch (err) {
+    failed = true;
+    toast(`Couldn’t check progress: ${err.message}. Your work may still be running.`, 9000);
+  } finally {
+    polling = false;
+    strip.hidden = true;
+    if (engine) engine.keepAwake(false);
+  }
+  if (failed) return; // a later navigation can retry; do not loop on a broken progress endpoint
+  if ($("#pick-q")) {
+    // On Setup someone may be typing: refresh only the build button, not the whole view.
+    await refreshState().catch(() => {});
+    updateBuildControls();
+  } else {
+    route();
+  }
+}
+
+// Start a background job; returns whether it started (errors are shown, not thrown).
+async function startJob(path) {
+  if (state.lookup_available === false) {
+    toast("New music lookups need a connected service. Your imports and saved taste still work here.", 7000);
+    return false;
+  }
+  if (engine) engine.keepAwake(true);
+  let res;
+  try {
+    res = await api(path, { method: "POST", body: {} });
+  } catch (err) {
+    if (engine) engine.keepAwake(false);
+    toast(err.message, 9000);
+    return false;
+  }
+  if (!res.started) toast("Another task is already running. Try again when it finishes.");
+  watchJob();
+  return res.started;
+}
+
+// A button that starts a job: disabled while starting, then onStarted() (by default, redraw the view).
+function jobButton(btn, path, onStarted = () => route()) {
+  if (!btn) return;
+  const canOpen = () => path === "/api/prepare" && state.graph_ready && ["current", "history", "more_history", "taste"].includes(nextRecommendationAction(state));
+  if (state.lookup_available === false && !canOpen()) btn.disabled = true;
+  btn.addEventListener("click", async () => {
+    if (canOpen()) {
+      onStarted();
+      return;
+    }
+    const mine = routeSeq;
+    btn.disabled = true;
+    if (await startJob(path)) { if (mine === routeSeq && btn.isConnected) onStarted(); }
+    else btn.disabled = false;
+  });
+}
+
+// Something to build from: picked favourites or an imported history.
+const canBuild = () => Boolean(state.has_data || state.plays || (state.picks && state.picks.loved));
+
+// ---------------------------------------------------------------- routing
+const views = { "this-week": viewThisWeek, "for-you": viewForYou, songs: viewSongs, explore: viewExplore, taste: viewTaste, accuracy: viewAccuracy, setup: viewSetup };
+
+let routeSeq = 0; // each navigation's number: a slower, older one never overwrites a newer one
+let setupPickListener = null;
+
+async function route() {
+  const mine = ++routeSeq;
+  stopPreview();
+  previewObserver?.disconnect();
+  previewChecks.cancelPending();
+  if (setupPickListener) {
+    document.removeEventListener("sideband-picks", setupPickListener);
+    setupPickListener = null;
+  }
+  let name = location.hash.slice(1) || "this-week";
+  if (name === "main") { main.focus(); name = main.dataset.view || "this-week"; }
+  if (!views[name]) name = "this-week";
+  try {
+    await refreshState();
+  } catch (err) {
+    if (mine !== routeSeq) return;
+    main.innerHTML = BROWSER
+      ? `<div class="empty"><h2>Sideband couldn’t start</h2><p>Reload the page to try again. If it keeps happening, this browser may be too old to run it. (${esc(err.message)})</p></div>`
+      : `<div class="empty"><h2>Can’t reach Sideband</h2><p>Is <code>Sideband serve</code> still running? (${esc(err.message)})</p></div>`;
+    return;
+  }
+  if (mine !== routeSeq) return;
+  if (!canBuild() && !state.graph_exists && !["setup", "taste", "accuracy"].includes(name)) name = "setup";
+  main.dataset.view = name;
+  document.title = `${({"this-week":"This week","for-you":"For you",songs:"Songs",explore:"Explore",taste:"Your taste",accuracy:"Accuracy",setup:"Setup"})[name]} · Sideband`;
+  document.querySelectorAll(".tabs a").forEach((a) => {
+    if (a.getAttribute("href") === `#${name === "for-you" ? "this-week" : name}`) {
+      a.setAttribute("aria-current", "page");
+      if (matchMedia("(max-width: 760px)").matches) a.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+    else a.removeAttribute("aria-current");
+  });
+  try {
+    await views[name]();
+    if (mine === routeSeq && ["for-you", "songs", "explore"].includes(name) && state.graph_exists) staleStrip();
+    if (mine === routeSeq) {
+      main.querySelectorAll("table").forEach(table => {
+        if (table.parentElement.classList.contains("table-wrap")) return;
+        const wrap = document.createElement("div"); wrap.className = "table-wrap";
+        table.before(wrap); wrap.append(table);
+      });
+    }
+  } catch (err) {
+    if (mine !== routeSeq) return; // the person has already moved on to another view
+    if (err instanceof ApiError && err.status === 409) return renderBuildPrompt(err.message);
+    main.innerHTML = `<div class="empty"><h2>We couldn’t load this page</h2><p class="error">${esc(err.message)}</p><button id="retry-view" class="primary">Try again</button></div>`;
+    $("#retry-view").addEventListener("click", route);
+  }
+}
+window.addEventListener("hashchange", () => { if(location.hash === "#main") { main.focus(); return; } route(); window.scrollTo({top:0,behavior:"instant"}); main.focus({ preventScroll: true }); });
+
+function renderBuildPrompt(reason) {
+  const running = state.job.running && ["build", "prepare"].includes(state.job.name);
+  main.innerHTML = `
+    <div class="empty">
+      <h2>${running ? "Building your music map…" : "One more step: build your music map"}</h2>
+      <p>${running ? "This reads similar-artist data around your favourites. The first run takes a few minutes; later runs come from the cache." : esc(reason || "")}</p>
+      ${running ? "" : `<p>Sideband will look up artists similar to your favourites in public music data (${sourceNames()}), then rank every unfamiliar artist it finds.</p>
+      <button class="primary" id="build-now">${state.plays ? "Use my history to find music" : "Build my music map"}</button>`}
+    </div>`;
+  jobButton($("#build-now"), "/api/prepare");
+}
+
+function needsGraph() {
+  if (state.graph_exists) return false;
+  renderBuildPrompt("Next, Sideband maps the artists around your taste.");
+  return true;
+}
+
+const sourceNames = () => listJoin([...(state.settings.lastfm ? ["Last.fm"] : []), "Deezer", "ListenBrainz", "MusicBrainz"]);
+
+// Picks or history changed since the map was built: offer to bring the recommendations up to date.
+function staleStrip() {
+  if (state.graph_ready || state.job.running) return;
+  if ($("#prepare-for-you")) return; // the readiness card already supplies this action
+  const note = document.createElement("div");
+  note.className = "note stale";
+  note.innerHTML = `<p>Your picks or listening data changed since these were worked out. <button type="button" class="primary">Update my recommendations</button></p>`;
+  jobButton(note.querySelector("button"), "/api/prepare", () => note.remove());
+  main.prepend(note);
+}
+
+function basisText(source = state) {
+  const summary = source.input_summary || {};
+  const loved = source.picks?.loved;
+  const n = summary.picked_artists ?? (Array.isArray(loved) ? loved.length : loved || 0);
+  const parts = [];
+  if (source.plays) parts.push(`${fmt(source.plays)} plays analysed`);
+  if (n) parts.push(`${n} artist${n === 1 ? "" : "s"} you picked`);
+  if (summary.saved_tracks) parts.push(`${fmt(summary.saved_tracks)} saved song${summary.saved_tracks === 1 ? "" : "s"}`);
+  if (summary.playlist_tracks) parts.push(`${fmt(summary.playlist_tracks)} playlist song${summary.playlist_tracks === 1 ? "" : "s"}`);
+  if (summary.followed_artists) parts.push(`${fmt(summary.followed_artists)} followed artist${summary.followed_artists === 1 ? "" : "s"}`);
+  return parts.join(" + ") || "your picks";
+}
+
+// ---------------------------------------------------------------- recommendation evidence meter
+function meterScale(items) {
+  let m = 0.5;
+  for (const it of items) {
+    let p = 0; let n = 0;
+    for (const v of Object.values(it.contributions || {})) { if (v > 0) p += v; else n -= v; }
+    const bonus = it.score - Object.values(it.contributions || {}).reduce((a, b) => a + b, 0);
+    if (bonus > 0) p += bonus; else n -= bonus;
+    m = Math.max(m, p, n);
+  }
+  return 112 / m;
+}
+
+function segPath(x, w, h, y, roundEnd) {
+  const r = Math.min(4, w / 2, h / 2);
+  if (roundEnd === "right") return `M${x},${y}h${w - r}a${r},${r} 0 0 1 ${r},${r}v${h - 2 * r}a${r},${r} 0 0 1 -${r},${r}h-${w - r}z`;
+  if (roundEnd === "left") return `M${x + w},${y}h-${w - r}a${r},${r} 0 0 0 -${r},${r}v${h - 2 * r}a${r},${r} 0 0 0 ${r},${r}h${w - r}z`;
+  return `M${x},${y}h${w}v${h}h-${w}z`;
+}
+
+function meter(item, scale) {
+  const entries = Object.entries(item.contributions || {});
+  const bonus = item.score - entries.reduce((a, [, v]) => a + v, 0);
+  if (Math.abs(bonus) > 0.01) entries.push(["Novelty bonus (adventurous setting)", bonus]);
+  const W = 240; const H = 18; const mid = W / 2; const y = 3; const h = 12; const gap = 2;
+  const pos = entries.filter(([, v]) => v > 0.005).sort((a, b) => b[1] - a[1]);
+  const neg = entries.filter(([, v]) => v < -0.005).sort((a, b) => a[1] - b[1]);
+  let out = "";
+  let x = mid + 1;
+  pos.forEach(([k, v], i) => {
+    const w = Math.max(1.5, Math.min(W - x, v * scale) - gap);
+    if (w <= 0) return;
+    out += `<path class="pos" d="${segPath(x, w, h, y, i === pos.length - 1 ? "right" : "")}" data-tip="${esc(k)}: +${v.toFixed(2)}"></path>`;
+    x += w + gap;
+  });
+  x = mid - 1;
+  neg.forEach(([k, v], i) => {
+    const w = Math.max(1.5, Math.min(x, -v * scale) - gap);
+    if (w <= 0) return;
+    x -= w;
+    out += `<path class="neg" d="${segPath(x, w, h, y, i === neg.length - 1 ? "left" : "")}" data-tip="${esc(k)}: ${v.toFixed(2)}"></path>`;
+    x -= gap;
+  });
+  const net = entries.reduce((a, [, v]) => a + v, 0);
+  const nx = Math.max(1, Math.min(W - 1, mid + net * scale));
+  const rows = [...entries].sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).map(([k, v]) =>
+    `<tr><td><span class="key-swatch" style="background:var(${v >= 0 ? "--pos" : "--neg"})"></span>${esc(k)}</td><td class="num">${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(2)}</td></tr>`).join("");
+  const label = `Evidence: ${pos.length} signals for, ${neg.length} against, net ${net.toFixed(2)}`;
+  return `<details class="why"><summary>Why this match <span class="evidence-caption">${pos.length} supporting signals</span></summary><div class="meter">
+      <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}">
+        <rect class="track" x="0" y="${y}" width="${W}" height="${h}" rx="4"></rect>
+        ${out}<line class="axis" x1="${mid}" x2="${mid}" y1="0" y2="${H}"></line>
+        <line class="net" x1="${nx}" x2="${nx}" y1="0" y2="${H}" data-tip="Net score ${net.toFixed(2)}"></line>
+      </svg>
+      ${meterKey}
+        <table><thead><tr><th>Signal (standardised)</th><th class="num">Effect</th></tr></thead><tbody>${rows}
+        <tr><td><b>Net score</b></td><td class="num"><b>${net.toFixed(2)}</b></td></tr></tbody></table>
+      </div></details>`;
+}
+
+const meterKey = `<div class="meter-key small" aria-hidden="true">
+  <span><span class="key-swatch" style="background:var(--pos)"></span>evidence for</span>
+  <span><span class="key-swatch" style="background:var(--neg)"></span>evidence against</span>
+  <span><span class="key-swatch" style="background:var(--ink);width:3px"></span>net score</span>
+</div>`;
+
+// Why an artist was suggested, as safe HTML.
+function recReason(r) {
+  const because = r.because?.length ? `Because of ${listJoin(r.because.slice(0, 3).map((n) => `<b>${esc(n)}</b>`))} in your taste` : "Reached through your wider taste network";
+  const shared = r.shared_tags?.length ? `; shares ${listJoin(r.shared_tags.map(esc))} with your taste.` : ".";
+  return because + shared;
+}
+
+function recRow(r, i, scale, extraCtx = {}) {
+  const tags = (r.tags || []).slice(0, 4).map(esc).join(" · ");
+  const prob = r.like_probability != null
+    ? `<div class="prob" title="An estimate fitted to your own ratings; not independently validated">≈${Math.round(r.like_probability * 100)}% provisional like estimate</div>` : "";
+  const truth = r.true_like_probability != null
+    ? `<span class="truth-chip">Simulation’s true like-probability: ${Math.round(r.true_like_probability * 100)}%</span>` : "";
+  const ctx = { ...(r.context || {}), ...extraCtx };
+  const listeners = r.popularity ? ` · ${compact(r.popularity)} listeners` : "";
+  const verdict = savedVerdict(r, r.name);
+  return `<li class="rec${verdict ? " rated" : ""}" data-artist="${esc(r.name)}" data-feedback="${esc(verdict)}" data-ctx="${esc(JSON.stringify(ctx))}">
+    <div class="rec-rank" aria-label="Rank ${i + 1}">${String(i + 1).padStart(2, "0")}</div>
+    <div>
+      <h3 class="rec-name">${esc(r.name)}</h3>
+      <div class="rec-tags">${tags || "no genre tags"}${listeners}</div>
+      <p class="rec-why">${recReason(r)}</p>
+      ${meter(r, scale)}
+      ${truth}
+      <div class="rec-actions">
+        ${previewControl()}
+        ${listenLink(r.name)}
+        ${ratingButtons(r.name, "", verdict)}
+      </div>
+      ${ratingStatus(r.name, "", verdict)}
+    </div>
+    <div class="rec-side">
+      <div class="sticker" title="Scores higher than ${Math.floor(r.match)}% of the unfamiliar artists considered; this is not a probability" data-tip="Scores higher than ${Math.floor(r.match)}% of the unfamiliar artists considered; this is not a probability"><b>${Math.floor(r.match)}</b><span>percentile</span></div>
+      ${prob}
+    </div>
+  </li>`;
+}
+
+// ---------------------------------------------------------------- shared actions
+main.addEventListener("click", async (e) => {
+  const link = e.target.closest("a[data-listen-open]");
+  if (link) {
+    // Opening another app expresses interest, not an observed Spotify play.
+    recordInteraction({ artist: link.dataset.artist, track: link.dataset.track || "", kind: "external_open", event_id: interactionId() });
+    return;
+  }
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  const row = btn.closest("[data-artist]");
+  const act = btn.dataset.act;
+  if (act === "play" && row) return playPreview(btn, row);
+  if (act === "preview-retry" && row) return checkPreview(btn.closest("[data-preview-control]"), true);
+  if (act === "tag") return exploreTag(btn.dataset.tag);
+  if (!["like", "dislike", "known", "undo"].includes(act) || !row || row.dataset.saving) return;
+  const ctx = JSON.parse(row.dataset.ctx || "{}");
+  const track = row.dataset.track || "";
+  const identity = feedbackIdentity(row.dataset.artist, track);
+  if (feedbackSaving.has(identity)) return;
+  const verdict = act === "undo" ? "clear" : act;
+  if (verdict === row.dataset.feedback) return;
+  const buttons = row.querySelectorAll("button[data-act=like],button[data-act=dislike],button[data-act=known],button[data-act=undo]");
+  const message = row.querySelector(".rec-state span");
+  const previousMessage = message.textContent;
+  message.textContent = act === "undo" ? "Removing your rating…" : "Saving your rating…";
+  row.dataset.saving = "1";
+  feedbackSaving.add(identity);
+  buttons.forEach((b) => { b.disabled = true; });
+  try {
+    const stats = await saveFeedback({ artist: row.dataset.artist, track, verdict, context: ctx });
+    feedbackRevision += 1;
+    rememberFeedback(stats);
+    if (verdict === "clear") feedbackChoices.delete(identity);
+    else feedbackChoices.set(identity, verdict);
+    // A song can occur in several sections. Keep every visible copy consistent.
+    for (const item of main.querySelectorAll("li[data-artist]")) {
+      if (feedbackIdentity(item.dataset.artist, item.dataset.track || "") !== identity || !item.querySelector(".rec-state")) continue;
+      item.dataset.feedback = verdict === "clear" ? "" : verdict;
+      item.querySelectorAll("button[data-act=like],button[data-act=dislike],button[data-act=known]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.act === verdict)));
+      item.querySelector(".rec-state span").textContent = ratingMessage(verdict, Boolean(track));
+      item.querySelector("button[data-act=undo]").hidden = verdict === "clear";
+      item.classList.toggle("rated", verdict !== "clear");
+    }
+    const refresh = $(track ? "#refresh-songs" : "#refresh-recs");
+    if (refresh) refresh.textContent = act === "undo" ? "Refresh my list" : "Apply ratings to my list";
+    const status = $(track ? "#songs-status" : "#list-status");
+    if (status) status.textContent = "Saved. Refresh to use your updated taste. Your choice stays here until then so you can undo it.";
+  } catch (err) {
+    message.textContent = previousMessage;
+    toast(`Couldn’t save that: ${err.message}`);
+  } finally {
+    delete row.dataset.saving;
+    feedbackSaving.delete(identity);
+    buttons.forEach((b) => { b.disabled = false; });
+  }
+});
+main.addEventListener("auxclick", (event) => {
+  const link = event.button === 1 && event.target.closest("a[data-listen-open]");
+  if (link) recordInteraction({ artist: link.dataset.artist, track: link.dataset.track || "", kind: "external_open", event_id: interactionId() });
+});
+
+function interactionId() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  const bytes = new Uint8Array(16);
+  if (globalThis.crypto?.getRandomValues) globalThis.crypto.getRandomValues(bytes);
+  else bytes.forEach((_, i) => { bytes[i] = Math.floor(Math.random() * 256); });
+  bytes[6] = (bytes[6] & 15) | 64;
+  bytes[8] = (bytes[8] & 63) | 128;
+  const hex = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+function recordInteraction(body) {
+  // Learning failures must never interrupt playback or external navigation.
+  api("/api/interactions", { method: "POST", body }).catch(() => {});
+}
+
+// Only rows on screen are checked. A lookup is not playback or a taste signal.
+const previewInfo = new WeakMap();
+let previewObserver = null;
+const previewChecks = previewAvailability({ lookup: async (artist, track, { retry }) => {
+  return api(`/api/preview?artist=${enc(artist)}&track=${enc(track || "")}${retry ? "&fresh=1" : ""}`);
+} });
+function previewControl() {
+  return `<span class="preview-control" data-preview-control data-preview-state="unchecked"><span class="preview-note">Checking preview…</span></span>`;
+}
+function renderPreviewControl(control, result) {
+  control.dataset.previewState = result.status;
+  const row = control.closest("[data-artist]");
+  const subject = row.dataset.track ? `${row.dataset.track} by ${row.dataset.artist}` : row.dataset.artist;
+  if (result.status === "ready") {
+    previewInfo.set(control, result.info);
+    const label = row.dataset.track ? "Play preview" : "Play a preview";
+    control.innerHTML = `<button data-act="play" data-label="${label}" aria-label="Play a preview of ${esc(subject)}" aria-pressed="false">${label}</button>`;
+  } else if (result.status === "unavailable") {
+    previewInfo.delete(control);
+    control.innerHTML = `<span class="preview-note">No preview available</span>`;
+  } else if (result.status === "error") {
+    previewInfo.delete(control);
+    control.innerHTML = `<span class="preview-note">${result.media ? "Preview couldn’t play." : "Couldn’t check preview."}</span><button data-act="preview-retry" aria-label="${result.media ? "Reload" : "Retry checking"} the preview of ${esc(subject)}">${result.media ? "Reload preview" : "Retry check"}</button>`;
+  } else {
+    control.innerHTML = `<span class="preview-note">Checking preview…</span>`;
+  }
+}
+async function checkPreview(control, retry = false) {
+  if (!control?.isConnected) return;
+  const row = control.closest("[data-artist]");
+  if (!row || (playingBtn && control.contains(playingBtn))) return;
+  const hadFocus = retry && control.contains(document.activeElement);
+  renderPreviewControl(control, { status: "checking" });
+  const result = await previewChecks.request(row.dataset.artist, row.dataset.track || "", { retry });
+  if (!control.isConnected || result.status === "cancelled" || (playingBtn && control.contains(playingBtn))) return;
+  renderPreviewControl(control, result);
+  if (hadFocus && document.activeElement === document.body) control.querySelector("button")?.focus({ preventScroll: true });
+}
+function checkVisiblePreviews() {
+  for (const control of main.querySelectorAll('[data-preview-control][data-preview-state="unchecked"]')) {
+    if (previewInViewport(control.closest("li").getBoundingClientRect(), innerHeight, innerWidth)) checkPreview(control);
+  }
+}
+function observePreviews() {
+  previewObserver?.disconnect();
+  previewChecks.cancelPending();
+  const controls = main.querySelectorAll('[data-preview-control][data-preview-state="unchecked"], [data-preview-control][data-preview-state="checking"]');
+  if (typeof IntersectionObserver === "function") {
+    previewObserver = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        previewObserver.unobserve(entry.target);
+        checkPreview(entry.target);
+      }
+    }, { rootMargin: "0px", threshold: 0 });
+    controls.forEach((control) => previewObserver.observe(control));
+  } else {
+    controls.forEach((control) => { control.dataset.previewState = "unchecked"; });
+    checkVisiblePreviews();
+  }
+}
+let previewScrollFrame = null;
+const checkPreviewsAfterScroll = () => {
+  if (typeof IntersectionObserver === "function" || previewScrollFrame != null) return;
+  previewScrollFrame = requestAnimationFrame(() => { previewScrollFrame = null; checkVisiblePreviews(); });
+};
+window.addEventListener("scroll", checkPreviewsAfterScroll, { passive: true });
+window.addEventListener("resize", checkPreviewsAfterScroll, { passive: true });
+
+let playingBtn = null;
+let previewSession = null;
+let playbackSeq = 0;
+function samplePreview() {
+  if (!previewSession) return;
+  const heard = previewSession.observation.sample(player.currentTime, performance.now(), { audible: previewSession.audible, rate: player.playbackRate });
+  previewSession.audible = !player.muted && player.volume > 0;
+  return heard;
+}
+function finishPreview() {
+  if (!previewSession) return;
+  samplePreview();
+  previewSession.observation.suspend();
+  const duration = previewSession.observation.take();
+  if (duration != null) recordInteraction({ artist: previewSession.artist, track: previewSession.track, kind: "preview_listen", duration_ms: duration, event_id: previewSession.id });
+}
+function resetPlayButton() {
+  if (!playingBtn) return;
+  playingBtn.textContent = playingBtn.dataset.label || "Play preview";
+  playingBtn.setAttribute("aria-label", playingBtn.dataset.playLabel || playingBtn.dataset.label || "Play preview");
+  playingBtn.setAttribute("aria-pressed", "false");
+  playingBtn.removeAttribute("aria-busy");
+  playingBtn = null;
+}
+function stopPreview() {
+  playbackSeq += 1;
+  player.pause();
+  finishPreview();
+  previewSession = null;
+  resetPlayButton();
+  player.removeAttribute("src");
+  player.load();
+}
+function previewPlaybackFailed(btn, error) {
+  const control = btn?.closest("[data-preview-control]");
+  const row = control?.closest("[data-artist]");
+  finishPreview();
+  previewSession = null;
+  resetPlayButton();
+  // A browser gesture restriction is recoverable by another explicit tap and
+  // does not make a matching preview disappear from the catalogue.
+  if (error?.name === "NotAllowedError") {
+    toast("Your browser blocked playback. Tap Play preview to try again.", 6000);
+    return;
+  }
+  if (row) previewChecks.forget(row.dataset.artist, row.dataset.track || "");
+  if (control?.isConnected) renderPreviewControl(control, { status: "error", media: true });
+}
+player.addEventListener("playing", () => {
+  if (!previewSession) return;
+  previewSession.audible = !player.muted && player.volume > 0;
+  previewSession.observation.start(player.currentTime, performance.now());
+});
+player.addEventListener("timeupdate", samplePreview);
+player.addEventListener("waiting", () => { samplePreview(); previewSession?.observation.suspend(); });
+player.addEventListener("seeking", () => previewSession?.observation.suspend());
+player.addEventListener("seeked", () => { if (!player.paused) previewSession?.observation.start(player.currentTime, performance.now()); });
+player.addEventListener("volumechange", () => { samplePreview(); });
+player.addEventListener("ended", () => { if (player.ended) { finishPreview(); resetPlayButton(); } });
+player.addEventListener("pause", () => { if (player.paused) { finishPreview(); resetPlayButton(); } });
+player.addEventListener("error", () => {
+  const btn = playingBtn;
+  if (!btn || !player.error) return;
+  playbackSeq += 1;
+  previewPlaybackFailed(btn);
+});
+window.addEventListener("pagehide", finishPreview);
+
+async function playPreview(btn, row) {
+  if (playingBtn === btn) { stopPreview(); return; }
+  const info = previewInfo.get(btn.closest("[data-preview-control]"));
+  if (!info?.preview_url) return;
+  stopPreview();
+  const mine = ++playbackSeq;
+  playingBtn = btn;
+  btn.dataset.playLabel = btn.getAttribute("aria-label") || "Play preview";
+  btn.textContent = "Cancel preview";
+  btn.setAttribute("aria-label", "Cancel preview");
+  btn.setAttribute("aria-busy", "true");
+  previewSession = { artist: info.artist || row.dataset.artist, track: info.title || row.dataset.track || "", id: interactionId(), audible: !player.muted && player.volume > 0, observation: previewObservation() };
+  player.src = info.preview_url;
+  try {
+    // The matching URL was checked beforehand, so play() stays inside the
+    // user's click gesture, including on browsers with strict audio policies.
+    await player.play();
+    if (mine !== playbackSeq) return;
+    btn.textContent = row.dataset.track ? "Pause preview" : `Pause · “${info.title}”`;
+    btn.setAttribute("aria-label", `Pause preview: ${info.title || row.dataset.track || row.dataset.artist}`);
+    btn.setAttribute("aria-pressed", "true");
+    btn.removeAttribute("aria-busy");
+  } catch (err) {
+    if (mine === playbackSeq) previewPlaybackFailed(btn, err);
+  }
+}
+
+// ---------------------------------------------------------------- For you
+let exploration = explorationChoice(store("mf.exploration"));
+let batchSize = batchChoice(store("mf.batchSize"));
+
+function dialText(e) {
+  if (e < 0.2) return "Close matches: prioritise artists near the ones you already love.";
+  if (e < 0.45) return "Mostly close matches, with a few less obvious names mixed in.";
+  if (e < 0.7) return "Balanced: lesser-known artists and neighbouring genres. Expect a few more misses.";
+  return "Adventurous: less famous artists further from your usual genres. Lower hit rate, more discoveries.";
+}
+
+function dialMarkup(note = "") {
+  return `<details class="dial" ${matchMedia("(min-width: 651px)").matches ? "open" : ""}><summary>Tune your discoveries</summary>
+        <label for="dial">How adventurous?</label>
+        <input id="dial" type="range" min="0" max="1" step="0.05" value="${exploration}">
+        <div class="dial-ends"><span>Safe bets</span><span>Adventurous</span></div>
+        <output id="dial-say" for="dial">${dialText(exploration)}</output>
+        ${note ? `<p class="small muted">${note}</p>` : ""}
+      </details>`;
+}
+
+function personalizationPanel() {
+  const p = state.personalization || {};
+  const next = nextRecommendationAction(state);
+  const title = {
+    working: "Your recommendations are being updated",
+    history: "Start with artists you love",
+    taste: "Your favourites shape these picks",
+    more_history: "More history can sharpen personal settings",
+    prepare: state.plays ? "Get more from your listening history" : "Update your music map",
+    current: !state.plays ? "Your choices shape these picks"
+      : p.model_current ? "Your history is shaping these picks" : "Your history has been checked",
+  }[next];
+  const reason = p.reason || (state.plays
+    ? "Check which settings predict your later listening best, then use a fitted model when the evidence supports it."
+    : "Your picks and your Keep and Pass choices shape these recommendations.");
+  const range = p.first && p.last ? ` · ${esc(p.first)} to ${esc(p.last)}` : "";
+  const details = state.plays ? `${fmt(state.plays)} plays${range}${p.has_skip_data === false ? " · no skip information" : ""}` : basisText();
+  const action = next === "prepare" ? `<button id="prepare-for-you" class="primary">${state.plays ? "Improve from my history" : "Update my recommendations"}</button>`
+    : next === "history" ? `<a class="button" href="#setup">Pick favourites</a>`
+    : next === "taste" ? `<a class="button" href="#setup">Refine my taste</a>`
+    : next === "more_history" ? `<a class="button" href="#setup">Add more history</a>`
+    : `<a class="button" href="#accuracy">See accuracy and evidence</a>`;
+  return `<details class="personalization" ${["prepare", "working"].includes(next) ? "open" : ""}><summary>${title}<span>How your picks are made</span></summary><div class="personalization-body"><p>${esc(reason)}</p><p class="small muted">${details}</p><div class="row">${action}</div></div></details>`;
+}
+
+async function viewForYou() {
+  if (needsGraph()) return;
+  const mine = routeSeq;
+  const fitted = state.personalization?.model_current ?? state.personalised_model;
+  const sub = `Based on ${basisText()} · ranking model: ${fitted
+    ? "fitted to your history by the accuracy test"
+    : state.personalised_model ? "fitted to earlier history; new history needs a fresh check"
+    : state.plays ? (state.personalization?.tested_current
+      ? "default settings; this history did not support a reliable change"
+      : state.personalization?.can_evaluate === false ? "default settings; more history needed for personal settings"
+      : 'default settings; <a href="#accuracy">check personal settings</a>') : "default settings"}`;
+  main.innerHTML = `
+    <div class="view-head">
+      <div><h1>Find your next favourite.</h1><p>Unfamiliar artists. A familiar feeling.</p><p class="small muted">Based on ${basisText()} <a href="#setup">Edit your starting point</a></p></div>
+      ${dialMarkup()}
+    </div>
+    ${personalizationPanel().replace("</details>", `<p class="small muted model-explanation">${sub}</p></details>`)}
+    <div class="recommendation-controls"><div class="row"><label for="batch-size">Artists at a time</label>
+      <select id="batch-size">${[10, 20, 30].map((n) => `<option value="${n}" ${n === batchSize ? "selected" : ""}>${n}</option>`).join("")}</select>
+      <button id="refresh-recs">Refresh my list</button></div>
+      <p class="small muted" id="list-status" role="status">Rate a few after listening, then refresh to see your updated taste.</p>
+    </div>
+    <ol class="recs" id="recs"><li class="loading">Ranking every candidate…</li></ol>`;
+  jobButton($("#prepare-for-you"), "/api/prepare");
+  const box = $("#recs");
+  const refresh = $("#refresh-recs");
+  const status = $("#list-status");
+  const requests = latestRequest();
+  const load = async () => {
+    const token = requests.start();
+    const revision = feedbackRevision;
+    refresh.disabled = true;
+    box.setAttribute("aria-busy", "true");
+    status.textContent = "Updating your list…";
+    try {
+      const [data] = await Promise.all([api(`/api/recommendations?n=${batchSize}&exploration=${exploration}`), loadFeedbackChoices()]);
+      if (mine !== routeSeq || !requests.current(token) || !box.isConnected || revision !== feedbackRevision) return;
+      const items = data.items;
+      const scale = meterScale(items);
+      stopPreview();
+      box.innerHTML = items.length
+        ? items.map((r, i) => recRow(r, i, scale)).join("")
+        : `<li class="empty">No unfamiliar artists found near your taste yet. Pick a few more artists you love in <a href="#setup">Setup</a>.</li>`;
+      status.textContent = `${items.length} artists to discover. Listen, rate, and make this list yours.`;
+      refresh.textContent = "Refresh my list";
+      observePreviews();
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) throw err;
+      if (mine === routeSeq && requests.current(token) && box.isConnected) {
+        status.textContent = `Couldn’t update the list: ${err.message}. Try Refresh my list again.`;
+        if (box.querySelector(".loading")) box.innerHTML = `<li class="empty">Your list is taking a little longer. Refresh to try again.</li>`;
+      }
+    } finally {
+      if (requests.current(token) && box.isConnected) {
+        refresh.disabled = false;
+        box.setAttribute("aria-busy", "false");
+      }
+    }
+  };
+  let t;
+  $("#dial").addEventListener("input", (e) => {
+    requests.start(); // invalidate older results as soon as the listener changes the dial
+    exploration = Number(e.target.value);
+    store("mf.exploration", String(exploration));
+    $("#dial-say").textContent = dialText(exploration);
+    clearTimeout(t);
+    t = setTimeout(() => load().catch((err) => toast(err.message)), 300);
+  });
+  $("#batch-size").addEventListener("change", (e) => {
+    batchSize = batchChoice(e.target.value);
+    store("mf.batchSize", String(batchSize));
+    clearTimeout(t);
+    load().catch((err) => toast(err.message));
+  });
+  refresh.addEventListener("click", () => { clearTimeout(t); load().catch((err) => toast(err.message)); });
+  await load();
+}
+
+// ---------------------------------------------------------------- This week
+// One automatic map update per page session; a newly saved pick or list allows another.
+let autoBuildTried = false;
+const STACK_VERDICTS = { keep: "like", pass: "dislike", known: "known" };
+const STACK_STATUS = { like: "kept", dislike: "passed", known: "known" };
+const localDate = (iso) => { const [y, m, d] = String(iso).split("-").map(Number); return new Date(y, m - 1, d); };
+const toElement = (html) => { const t = document.createElement("template"); t.innerHTML = html.trim(); return t.content.firstElementChild; };
+
+function scoreLine(score) {
+  if (!score?.shown) return "";
+  const since = score.since ? localDate(score.since).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" }) : "";
+  return `${since ? `Since ${since}: ` : ""}${fmt(score.shown)} artists shown, ${fmt(score.kept)} kept, ${fmt(score.passed)} passed, ${fmt(score.known)} you already knew.`;
+}
+
+function stackCard(item, i, scale) {
+  const name = esc(item.name);
+  const tags = (item.tags || []).slice(0, 3).map(esc).join(" · ");
+  const slots = [item.slot === "wildcard" ? "Wildcard" : "Close match", item.second_look ? "Second look" : ""]
+    .filter(Boolean).map((label) => `<span class="stack-slot">${label}</span>`).join("");
+  return `<li class="rec stack-card" data-artist="${name}" data-key="${esc(item.key)}" data-ctx="${esc(JSON.stringify(item.context || {}))}" data-index="${i}" hidden>
+    <div class="listening-card">
+      <div class="artist-heading"><h2 class="rec-name" tabindex="-1">${name}</h2><span class="selection-number" aria-label="Selection ${i + 1}">${String(i + 1).padStart(2, "0")}</span></div>
+      <div class="rec-tags">${tags || "Discover their sound"}</div>
+      <div class="selection-labels">${slots}</div>
+      <div class="listening-note"><h3>The connection</h3><p class="rec-why">${item.because?.length ? `From your love of ${listJoin(item.because.slice(0, 3).map(name => `<b>${esc(name)}</b>`))}.` : "A new connection through your wider taste network."}</p></div>
+      <div class="rec-actions listening-actions">${previewControl()}${listenLink(item.name)}
+      <button class="quiet more-songs" data-act="more-songs" aria-expanded="false" aria-label="More songs by ${name}">More songs</button></div>
+      <div class="rec-actions decision-actions" role="group" aria-label="Your choice for ${name}">
+        <button data-stack="keep" class="primary"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>Keep</button>
+        <button data-stack="pass">Pass</button>
+        <button data-stack="known" class="quiet">Know them</button>
+        <button data-stack="snooze" class="quiet">Not now</button>
+      </div>
+      <p class="decision-help">Keep what you love. “Not now” sets it aside for four weeks.</p>
+      ${meter(item, scale).replace("</details>", `<p>${recReason(item)}</p></details>`)}
+      ${item.true_like_probability != null ? `<span class="truth-chip">Simulation’s true like-probability: ${Math.round(item.true_like_probability * 100)}%</span>` : ""}
+    </div>
+  </li>`;
+}
+
+function sortedRow(item) {
+  return `<li class="song" data-key="${esc(item.key)}" data-artist="${esc(item.name)}">
+    <div class="song-details"><div class="song-title">${esc(item.name)}</div><div class="song-why">${esc(stackStatusLabel(item.status))}</div></div>
+    <button data-stack="undo" class="quiet" aria-label="Undo your choice for ${esc(item.name)}">Undo</button></li>`;
+}
+
+async function viewThisWeek() {
+  if (needsGraph()) return;
+  const mine = routeSeq;
+  if (state.graph_exists && !state.graph_ready && state.lookup_available !== false && !state.job.running && !autoBuildTried) {
+    autoBuildTried = true;
+    startJob("/api/build");
+  }
+  main.innerHTML = `
+    <div class="week-heading"><div><h1>This week’s selection.</h1><p>Follow a connection. Give it a listen. Keep what stays with you.</p></div><div class="week-date" id="week-date"></div></div>
+    <div id="stack-view">
+      <div class="session-toolbar"><p id="stack-progress" role="status">Choosing this week’s artists…</p><a href="#setup">Edit your starting point</a></div>
+      <div class="listening-workspace">
+        <section class="listening-focus" aria-label="Artist in focus">
+          <ol class="recs" id="stack-open"><li class="loading">Choosing this week’s artists…</li></ol>
+          <div id="stack-done" class="empty" hidden></div>
+          <div class="focus-navigation" id="focus-navigation" hidden><button id="stack-previous" class="quiet" aria-label="Previous artist">Previous</button><span id="focus-position"></span><button id="stack-next" class="quiet" aria-label="Next artist">Next</button></div>
+          <details class="selection-details"><summary>About this selection</summary><p>Based on ${basisText()}. Your choices shape the next selection. Unanswered artists may return once; “Not now” gives them four weeks.</p>${dialMarkup("Applies to your next picks and to “5 more”.")}</details>
+        </section>
+        <aside class="selection-queue" aria-label="This week’s queue"><div class="queue-heading"><h2>This week’s artists</h2><span id="queue-count"></span></div><ol id="stack-queue" class="queue-list"></ol><div id="stack-more-row" hidden><button id="stack-more" class="quiet">Add 5 more</button></div><a class="ranked-link" href="#for-you">Browse the full ranked list ${externalIcon}</a></aside>
+      </div>
+      <div class="collection-workspace"><section id="keepers"><div class="collection-heading"><h2>Your keepers</h2><span>Worth coming back to.</span></div><div id="keepers-body"><p class="loading">Loading your keepers…</p></div></section>
+      <section id="stack-sorted-section" hidden><div class="collection-heading"><h2>Sorted this week</h2><span>Every decision is reversible.</span></div><ol class="songs" id="stack-sorted"></ol></section></div>
+    </div>`;
+  $("#dial").addEventListener("input", (e) => {
+    exploration = Number(e.target.value);
+    store("mf.exploration", String(exploration));
+    $("#dial-say").textContent = dialText(exploration);
+  });
+  const view = $("#stack-view"), box = $("#stack-open"), sorted = $("#stack-sorted"), progress = $("#stack-progress"), done = $("#stack-done");
+  const entries = new Map(), saving = new Set();
+  let week = weekStart(), exhausted = false, dealing = false, keepers = [], activeKey = null;
+  const here = () => mine === routeSeq && view.isConnected;
+  const openEntries = () => [...entries.values()].filter(entry => entry.item.status === "open");
+  const insertOpen = (entry) => {
+    const after = [...box.children].find(li => Number(li.dataset.index) > entry.index);
+    box.insertBefore(entry.el, after || null);
+  };
+  const addItems = (list) => {
+    const scale = meterScale(list);
+    list.forEach((item, index) => {
+      if (entries.has(item.key)) return;
+      item.status = item.status || "open";
+      const entry = { item, el: toElement(stackCard(item, index, scale)), index };
+      entries.set(item.key, entry);
+      if (item.status === "open") insertOpen(entry);
+      else sorted.append(toElement(sortedRow(item)));
+    });
+  };
+  const render = () => {
+    const all = [...entries.values()], remaining = openEntries();
+    if (!remaining.some(entry => entry.item.key === activeKey)) activeKey = remaining[0]?.item.key || null;
+    for (const entry of all) entry.el.hidden = entry.item.key !== activeKey;
+    store(`mf.focus.${week}`, activeKey || "");
+    const activeIndex = remaining.findIndex(entry => entry.item.key === activeKey);
+    progress.innerHTML = `<span class="session-progress" aria-hidden="true">${all.map(entry => `<i class="${entry.item.status === "open" ? "" : "sorted"}"></i>`).join("")}</span><span>${all.length - remaining.length} of ${all.length} sorted</span>`;
+    $("#queue-count").textContent = `${remaining.length} to discover`;
+    $("#week-date").textContent = `Week of ${localDate(week).toLocaleDateString(undefined, { month: "long", day: "numeric" })}`;
+    $("#stack-queue").innerHTML = all.map(entry => `<li><button data-queue="${esc(entry.item.key)}" ${entry.item.status !== "open" ? "disabled" : ""} ${entry.item.key === activeKey ? 'aria-current="true"' : ""}><span class="queue-number">${String(entry.index + 1).padStart(2, "0")}</span><span class="queue-artist">${esc(entry.item.name)}<small>${entry.item.status !== "open" ? esc(stackStatusLabel(entry.item.status)) : entry.item.slot === "wildcard" ? "Wildcard · " + esc(entry.item.tags?.[0] || "Further afield") : esc(entry.item.tags?.[0] || "Close match")}</small></span><span class="queue-indicator" aria-hidden="true">${entry.item.status === "open" ? "" : `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>`}</span></button></li>`).join("");
+    const queue = $("#stack-queue"), selected = queue.querySelector('[aria-current="true"]');
+    if (selected) {
+      const itemRect = selected.getBoundingClientRect(), queueRect = queue.getBoundingClientRect();
+      if (itemRect.top < queueRect.top || itemRect.bottom > queueRect.bottom) queue.scrollTop += itemRect.top - queueRect.top - (queue.clientHeight - itemRect.height) / 2;
+    }
+    box.hidden = !remaining.length;
+    $("#stack-more-row").hidden = !remaining.length || exhausted;
+    $("#stack-more").disabled = dealing;
+    $("#stack-more").textContent = dealing ? "Finding more…" : "Add 5 more";
+    $("#stack-sorted-section").hidden = !sorted.children.length;
+    $("#focus-navigation").hidden = !remaining.length;
+    $("#focus-position").textContent = `${activeIndex + 1} of ${remaining.length} remaining`;
+    $("#stack-previous").disabled = activeIndex <= 0;
+    $("#stack-next").disabled = activeIndex >= remaining.length - 1;
+    done.hidden = Boolean(remaining.length);
+    if (remaining.length) {
+      entries.get(activeKey).el.querySelectorAll('[data-preview-state="unchecked"]').forEach(control => checkPreview(control));
+      return;
+    }
+    const nextWeek = localDate(addDaysISO(week, 7)).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" });
+    done.innerHTML = `<h2>${all.length ? "A good place to pause." : "A wider world is waiting."}</h2><p>${all.length ? `All ${all.length} artists sorted. You kept ${all.filter(entry => entry.item.status === "kept").length} this week.` : "Add a few more favourites to give your next selection somewhere new to go."}</p>${exhausted ? `<p>That’s everything near your taste for now. Add favourites in <a href="#setup">Setup</a>, or try <a href="#explore">Explore</a>.</p>` : ""}<p>Your next ten arrive on ${esc(nextWeek)}.</p>${exhausted ? "" : `<button class="primary" id="stack-deal" ${dealing ? "disabled" : ""}>${dealing ? "Finding more…" : "Deal 5 more now"}</button>`}`;
+  };
+  const selectArtist = (key, focus = false) => {
+    if (!entries.has(key) || entries.get(key).item.status !== "open") return;
+    if (activeKey !== key) stopPreview();
+    activeKey = key;
+    render();
+    if (focus) {
+      const card = entries.get(key).el;
+      card.querySelector(".rec-name").focus({ preventScroll: true });
+      if (matchMedia("(max-width: 760px)").matches) card.scrollIntoView({ block: "start", behavior: "instant" });
+    }
+  };
+  const keeperRequests = latestRequest();
+  const loadKeepers = async () => {
+    const token = keeperRequests.start(), body = $("#keepers-body");
+    try {
+      const data = await api("/api/kept");
+      if (!keeperRequests.current(token) || !body.isConnected) return;
+      keepers = (data.items || []).map(item => item.artist);
+      body.innerHTML = keepers.length ? `<div class="keeper-tools"><span>${keepers.length} ${keepers.length === 1 ? "artist" : "artists"} kept</span><button id="share-keepers" class="quiet">Share list</button></div><ol class="songs" id="keepers-list">${keepers.map(artist => `<li class="song" data-artist="${esc(artist)}"><div class="song-title">${esc(artist)}</div>${listenLink(artist)}</li>`).join("")}</ol>` : `<div class="keeper-empty"><p>Your next favourite has a place here.</p><span>Choose Keep on an artist and they’ll stay in your collection.</span></div>`;
+    } catch (err) {
+      if (keeperRequests.current(token) && body.isConnected) body.innerHTML = `<p class="error">Couldn’t load your keepers: ${esc(err.message)}</p><button id="retry-keepers">Try again</button>`;
+    }
+  };
+  const shareKeepers = async () => {
+    const text = keepers.join("\n");
+    if (navigator.share) {
+      try { await navigator.share({ title: "My Sideband keepers", text }); return; }
+      catch (err) { if (err?.name === "AbortError") return; }
+    }
+    if (navigator.clipboard?.writeText) {
+      try { await navigator.clipboard.writeText(text); toast("Your keepers are copied. Paste them anywhere."); return; } catch {}
+    }
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(new Blob([`${text}\n`], { type: "text/plain" }));
+    link.download = "sideband-keepers.txt";
+    link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 60000);
+  };
+  const decide = async (row, act) => {
+    const entry = entries.get(row.dataset.key);
+    if (!entry || saving.has(entry.item.key)) return;
+    const { item, el } = entry, undo = act === "undo", buttons = [...row.querySelectorAll("button[data-stack]")];
+    const hadFocus = row.contains(document.activeElement), selectionAtStart = activeKey;
+    saving.add(item.key);
+    buttons.forEach(button => { button.disabled = true; });
+    try {
+      let status;
+      if (act === "snooze" || (undo && item.status === "snoozed")) {
+        const result = await api("/api/stack/snooze", { method: "POST", body: { artist: item.name, on: !undo } });
+        status = result?.status || (undo ? "open" : "snoozed");
+      } else {
+        const verdict = undo ? "clear" : STACK_VERDICTS[act];
+        const stats = await saveFeedback({ artist: item.name, track: "", verdict, context: item.context || {} });
+        feedbackRevision += 1;
+        rememberFeedback(stats);
+        const identity = feedbackIdentity(item.name, "");
+        if (verdict === "clear") feedbackChoices.delete(identity); else feedbackChoices.set(identity, verdict);
+        status = undo ? "open" : STACK_STATUS[verdict];
+      }
+      if (!here()) return;
+      const restoreFocus = hadFocus && activeKey === selectionAtStart && (row.contains(document.activeElement) || document.activeElement === document.body);
+      item.status = status;
+      sorted.querySelector(`li[data-key="${CSS.escape(item.key)}"]`)?.remove();
+      if (status === "open") {
+        insertOpen(entry);
+        if (activeKey === selectionAtStart) { if (activeKey !== item.key) stopPreview(); activeKey = item.key; }
+      }
+      else {
+        if (playingBtn && el.contains(playingBtn)) stopPreview();
+        const next = openEntries().find(candidate => candidate.index > entry.index) || openEntries()[0];
+        if (activeKey === item.key) activeKey = next?.item.key || null;
+        el.remove(); sorted.append(toElement(sortedRow(item)));
+      }
+      render();
+      toast(`${item.name}: ${undo ? "choice undone" : stackStatusLabel(status)}.`, 3500);
+      if (restoreFocus) {
+        const target = activeKey ? entries.get(activeKey).el.querySelector("button[data-stack=keep]") : $("#stack-deal") || sorted.lastElementChild?.querySelector("button");
+        target?.focus({ preventScroll: true });
+        if (undo && activeKey && matchMedia("(max-width: 760px)").matches) entries.get(activeKey).el.scrollIntoView({ block: "start", behavior: "instant" });
+      }
+      loadKeepers();
+    } catch (err) { toast(`Couldn’t save that: ${err.message}`); }
+    finally { saving.delete(item.key); buttons.forEach(button => { button.disabled = false; }); }
+  };
+  const moreSongs = async (btn, card) => {
+    const existing = card.querySelector(".stack-songs");
+    if (existing) {
+      existing.hidden = !existing.hidden;
+      btn.setAttribute("aria-expanded", String(!existing.hidden));
+      btn.textContent = existing.hidden ? "More songs" : "Hide songs";
+      if (existing.hidden && playingBtn && existing.contains(playingBtn)) stopPreview();
+      return;
+    }
+    btn.disabled = true; btn.textContent = "Finding songs…";
+    card.querySelector(".stack-songs-error")?.remove();
+    try {
+      const data = await api(`/api/artist/tracks?name=${enc(card.dataset.artist)}&n=5`);
+      if (!card.isConnected || !here()) { btn.textContent = "More songs"; return; }
+      const list = toElement(data.items?.length ? `<ul class="songs stack-songs">${data.items.map(track => `<li class="song" data-artist="${esc(track.artist)}" data-track="${esc(track.title)}"><div class="song-title">${esc(track.title)}</div><div class="row">${previewControl()}${listenLink(track.artist, track.title)}</div></li>`).join("")}</ul>` : `<p class="small muted stack-songs">No songs found for this artist yet. Try the link to your music service.</p>`);
+      list.id = `artist-songs-${card.dataset.index}`;
+      btn.after(list); btn.setAttribute("aria-controls", list.id); btn.setAttribute("aria-expanded", "true"); btn.textContent = "Hide songs";
+      list.querySelectorAll("[data-preview-control]").forEach(control => checkPreview(control));
+    } catch (err) {
+      btn.after(toElement(`<p class="small error stack-songs-error" role="status">Couldn’t find songs: ${esc(err.message)}. Try again.</p>`)); btn.textContent = "More songs";
+    } finally { btn.disabled = false; }
+  };
+  const dealMore = async () => {
+    if (dealing) return;
+    dealing = true; render();
+    try {
+      const data = await api("/api/stack/more", { method: "POST", body: { week: weekStart(), exploration, n: 5 } });
+      if (!here()) return;
+      if (data.week !== week) { route(); return; }
+      exhausted = Boolean(data.exhausted); addItems(data.items || []);
+    } catch (err) { toast(`Couldn’t deal more artists: ${err.message}`); }
+    finally { dealing = false; if (here()) render(); }
+  };
+  view.addEventListener("click", event => {
+    const btn = event.target.closest("button");
+    if (!btn) return;
+    if (btn.dataset.queue) return selectArtist(btn.dataset.queue, true);
+    if (btn.id === "stack-previous" || btn.id === "stack-next") {
+      const remaining = openEntries(), index = remaining.findIndex(entry => entry.item.key === activeKey);
+      return selectArtist(remaining[index + (btn.id === "stack-next" ? 1 : -1)]?.item.key, true);
+    }
+    if (btn.id === "stack-more" || btn.id === "stack-deal") return dealMore();
+    if (btn.id === "share-keepers") return shareKeepers().catch(err => toast(err.message));
+    if (btn.id === "retry-keepers") return loadKeepers();
+    if (btn.dataset.act === "more-songs") return moreSongs(btn, btn.closest(".stack-card"));
+    const row = btn.dataset.stack && btn.closest("li[data-key]");
+    if (row) decide(row, btn.dataset.stack);
+  });
+  // A service change also reaches the detached cards kept available for Undo.
+  view.addEventListener("sideband-service", () => {
+    for (const entry of entries.values()) updateListenLinks(entry.el);
+  });
+  const [data] = await Promise.all([api("/api/stack", { method: "POST", body: { week, exploration } }), loadFeedbackChoices()]);
+  if (!here()) return;
+  week = data.week || week; exhausted = Boolean(data.exhausted);
+  stopPreview(); box.innerHTML = ""; addItems(data.items || []);
+  activeKey = store(`mf.focus.${week}`); render(); loadKeepers();
+}
+
+// ---------------------------------------------------------------- Songs
+function songRow(s) {
+  const verdict = savedVerdict(s, s.artist, s.title);
+  const ctx = { ...(s.context || {}), source: "songs", kind: s.kind || "song", exploration };
+  return `<li class="song song-rec${verdict ? " rated" : ""}" data-artist="${esc(s.artist)}" data-track="${esc(s.title)}" data-feedback="${esc(verdict)}" data-ctx="${esc(JSON.stringify(ctx))}">
+    <div class="song-details"><div class="song-title">${esc(s.title)} <span class="muted">— ${esc(s.artist)}</span></div>
+    <div class="song-why">${esc(s.because)}</div>
+    ${ratingStatus(s.artist, s.title, verdict)}</div>
+    <div class="song-actions"><div class="row song-playback">${previewControl()}
+    ${listenLink(s.artist, s.title)}</div>
+    <div class="row song-ratings" role="group" aria-label="Your opinion of ${esc(s.title)}">${ratingButtons(s.artist, s.title, verdict)}</div></div>
+  </li>`;
+}
+
+async function viewSongs() {
+  if (needsGraph()) return;
+  const mine = routeSeq;
+  main.innerHTML = `
+    <div class="view-head"><div><h1>Something worth a listen.</h1>
+    <p>New connections, new artists, and a little deeper into your favourites.</p></div></div>
+    <div class="recommendation-controls"><button id="refresh-songs">Refresh my list</button>
+    <p class="small muted">${learningCopy} Dislike applies to this song; it doesn’t exclude its whole artist. <a href="#taste">Review your saved choices</a>.</p>
+    <p class="small muted" id="songs-status" role="status">Looking up songs…</p></div>
+    <div id="songs"></div>`;
+  const refresh = $("#refresh-songs");
+  const status = $("#songs-status");
+  const box = $("#songs");
+  const requests = latestRequest();
+  const load = async () => {
+    const token = requests.start();
+    const revision = feedbackRevision;
+    refresh.disabled = true;
+    box.setAttribute("aria-busy", "true");
+    status.textContent = "Looking up songs using your current taste…";
+    try {
+      const [data] = await Promise.all([api(`/api/songs?exploration=${exploration}`), loadFeedbackChoices()]);
+      if (mine !== routeSeq || !requests.current(token) || !box.isConnected || revision !== feedbackRevision) return;
+      const block = (title, lede, items) => `<section class="section"><h2>${title}</h2><p class="lede">${lede}</p>
+        ${items.length ? `<ol class="songs">${items.map(songRow).join("")}</ol>` : `<p class="muted">Nothing new found for this list yet.</p>`}</section>`;
+      stopPreview();
+      box.innerHTML =
+        block("Songs like your favourites", "Songs connected to your favourites, ordered using your choices and music similarity.", data.similar_song)
+        + block("From new artists", "Songs from new artists matched to your current taste.", data.new_artist)
+        + block("Unheard songs by artists you love", "Songs from your favourite artists that aren’t in your saved listening history or choices.", data.deep_cut);
+      status.textContent = "Your song choices are saved across visits. Rate what you try, then refresh for new picks.";
+      refresh.textContent = "Refresh my list";
+      observePreviews();
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) throw err;
+      if (mine === routeSeq && requests.current(token) && box.isConnected) {
+        status.textContent = `Couldn’t update the list: ${err.message}. Try Refresh my list again.`;
+        if (box.querySelector(".loading")) box.innerHTML = `<li class="empty">Your list is taking a little longer. Refresh to try again.</li>`;
+      }
+    } finally {
+      if (requests.current(token) && box.isConnected) {
+        refresh.disabled = false;
+        box.setAttribute("aria-busy", "false");
+      }
+    }
+  };
+  refresh.addEventListener("click", () => load().catch((err) => toast(err.message)));
+  await load();
+}
+
+// ---------------------------------------------------------------- Explore
+function bars(rows, { max } = {}) {
+  const m = max ?? Math.max(...rows.map((r) => r.value), 1e-9);
+  return `<ul class="bars">${rows.map((r) => `<li><span class="lbl" title="${esc(r.label)}">${esc(r.label)}</span>
+    <span class="bar" style="width:${Math.max(0.5, (100 * r.value) / m)}%" data-tip="${esc(r.label)}: ${esc(r.text)}"></span>
+    <span class="val">${esc(r.text)}</span></li>`).join("")}</ul>`;
+}
+
+const tagRequests = latestRequest();
+async function exploreTag(tag) {
+  const box = $("#tag-result");
+  if (!box || !tag) return;
+  const mine = routeSeq;
+  const token = tagRequests.start();
+  $("#tag-input").value = tag;
+  stopPreview();
+  box.innerHTML = `<p class="loading">Finding your best way into “${esc(tag)}”…</p>`;
+  box.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "start" });
+  try {
+    const res = await api(`/api/explore/tag?tag=${enc(tag)}`);
+    if (mine !== routeSeq || !tagRequests.current(token) || !box.isConnected) return;
+    const scale = meterScale(res.gateways);
+    box.innerHTML = `<section class="territory"><div class="territory-head"><h2>Your way into ${esc(res.tag)}</h2>
+      <span class="meta">${res.found} artists checked; ranked by how close each sits to what you already love</span></div>
+      ${res.you_already_know.length ? `<p class="meta">You already know ${esc(res.you_already_know.join(", "))}.</p>` : ""}
+      ${res.gateways.length ? `<ol class="recs">${res.gateways.map((r, i) => recRow(r, i, scale, { territory: res.tag })).join("")}</ol>`
+        : `<p class="muted">No artists found for that genre. Try a broader word, like jazz, metal or folk.</p>`}</section>`;
+    observePreviews();
+  } catch (err) {
+    if (mine !== routeSeq || !tagRequests.current(token) || !box.isConnected) return;
+    box.innerHTML = `<p class="error">${esc(err.message)}</p>`;
+  }
+}
+
+async function viewExplore() {
+  if (needsGraph()) return;
+  const mine = routeSeq;
+  main.innerHTML = `
+    <div class="view-head"><div><h1>Take the unfamiliar turn.</h1>
+    <p>Discover genres connected to your listening. Similarity and your ratings guide the order, with room for genres you have not tried yet. This exploration order is a guide, not a measured chance you will like a genre.</p></div>
+    <div class="row"><button id="shuffle">Shuffle the genres</button><a href="#genre-search" id="jump-genre" class="text-link">Search a genre</a></div></div>
+    <div class="split"><div id="terrs"><p class="loading">Mapping genres around your taste…</p></div>
+    <aside class="stack" id="explore-side"></aside></div>
+    <div id="tag-result"></div>`;
+  $("#jump-genre").addEventListener("click", event => { event.preventDefault(); const input = $("#tag-input"); if(input) { input.scrollIntoView({block:"center",behavior:"instant"}); input.focus({preventScroll:true}); } });
+  const requests = latestRequest();
+  const load = async (seed) => {
+    const token = requests.start();
+    const data = await api(`/api/explore${seed != null ? `?seed=${seed}` : ""}`);
+    if (mine !== routeSeq || !requests.current(token)) return;
+    stopPreview();
+    $("#terrs").innerHTML = data.territories.length ? data.territories.map((t) => {
+      const scale = meterScale(t.gateways);
+      const next = t.related_genres_you_know.length ? `Next door to ${esc(listJoin(t.related_genres_you_know))}` : "Reached through your taste network";
+      const rated = t.likes + t.dislikes ? `You liked ${t.likes} of ${t.likes + t.dislikes} rated artists here` : "You have not rated artists in this genre yet";
+      return `<section class="territory"><div class="territory-head"><h2>${esc(t.tag)}</h2>
+        <span class="meta">${rated}</span></div>
+        <p class="meta">${next}. Best ways in:</p>
+        <ol class="recs">${t.gateways.map((r, i) => recRow(r, i, scale, { territory: t.tag })).join("")}</ol></section>`;
+    }).join("") : `<div class="empty"><h2>No unfamiliar genres nearby yet</h2><p>Use the genre search to jump anywhere.</p></div>`;
+    const yours = data.your_genres.slice(0, 10).map((g) => ({ label: g.tag, value: g.share, text: pct(g.share) }));
+    $("#explore-side").innerHTML = `
+      <section><h2>Your genres now</h2><p class="small muted">Share of your weighted listening, from genre tags.</p>${bars(yours)}</section>
+      <section><h2>Jump anywhere</h2>
+        <form id="tag-form" class="row" role="search"><label for="tag-input" class="small">Genre or style</label>
+          <input id="tag-input" type="search" placeholder="e.g. bossa nova" autocomplete="off">
+          <button class="primary" type="submit">Find my way in</button></form>
+        <p class="small muted">Further from your taste:</p>
+        <div class="chips">${data.far_genres.map((g) => `<button data-act="tag" data-tag="${esc(g)}">${esc(g)}</button>`).join("")}</div>
+      </section>`;
+    $("#tag-form").addEventListener("submit", (e) => { e.preventDefault(); exploreTag($("#tag-input").value.trim()); });
+    observePreviews();
+  };
+  $("#shuffle").addEventListener("click", () => load(Math.floor(Math.random() * 1e6)).catch((err) => toast(err.message)));
+  await load();
+}
+
+// ---------------------------------------------------------------- Your taste
+function savedChoiceRow(item) {
+  const track = item.track || "";
+  const ctx = item.context || (track ? { source: "songs", kind: item.kind || "song" } : {});
+  return `<li class="song song-rec rated" data-artist="${esc(item.artist)}" data-track="${esc(track)}" data-feedback="${esc(item.verdict)}" data-ctx="${esc(JSON.stringify(ctx))}">
+    <div class="song-details"><div class="song-title">${esc(track || item.artist)}${track ? ` <span class="muted">— ${esc(item.artist)}</span>` : ""}</div>
+    <div class="song-why">${track ? "Song choice" : "Artist choice"}</div>${ratingStatus(item.artist, track, item.verdict)}</div>
+    <div class="song-actions"><div class="row">${ratingButtons(item.artist, track, item.verdict)}</div>${listenLink(item.artist, track)}</div></li>`;
+}
+let savedChoiceItems = [];
+function savedChoices(fb) {
+  savedChoiceItems = fb.saved_items || [];
+  return `<section class="section" id="saved-choices"><h2>Your saved choices</h2>
+    <p>Find a song or artist, change your choice, or undo it. Song and artist choices stay separate.</p>
+    ${savedChoiceItems.length ? `<form class="taste-filters" id="taste-filters" role="search" aria-label="Find saved choices">
+      <div class="taste-search"><label for="choice-search">Find an artist or song</label><input id="choice-search" type="search" placeholder="Search your choices…" autocomplete="off" spellcheck="false" aria-controls="saved-choices-list"></div>
+      <div class="taste-verdict"><label for="choice-verdict">Your choice</label><select id="choice-verdict" aria-controls="saved-choices-list"><option value="all">Any choice</option><option value="like">Liked</option><option value="dislike">Not for me</option><option value="known">Already know</option></select></div>
+      <div class="taste-scopes" role="group" aria-label="Type of saved choice"><button type="button" data-choice-scope="all" aria-pressed="true" aria-controls="saved-choices-list">All choices</button><button type="button" data-choice-scope="artist" aria-pressed="false" aria-controls="saved-choices-list">Artists</button><button type="button" data-choice-scope="song" aria-pressed="false" aria-controls="saved-choices-list">Songs</button></div>
+      <p id="choice-count" class="small muted" role="status" aria-live="polite" aria-atomic="true"></p>
+    </form>
+    <ol class="songs" id="saved-choices-list"></ol>
+    <div id="choices-empty" class="taste-no-matches" hidden><p>No choices match these filters.</p><button id="reset-choice-filters" type="button">Clear filters</button></div>
+    <button id="more-saved-choices" type="button" hidden>Show more choices</button>` : `<p class="muted">Your song and artist ratings will appear here.</p>`}</section>`;
+}
+function bindSavedChoices() {
+  const form = $("#taste-filters");
+  if (!form) return;
+  const search = $("#choice-search");
+  const verdict = $("#choice-verdict");
+  const list = $("#saved-choices-list");
+  const more = $("#more-saved-choices");
+  const count = $("#choice-count");
+  const empty = $("#choices-empty");
+  const scopes = [...form.querySelectorAll("[data-choice-scope]")];
+  let scope = "all";
+  let limit = 30;
+  const render = () => {
+    // Read the current choices so changing a filter never restores an old rating
+    // or resurrects a choice the listener just undid.
+    const current = savedChoiceItems.flatMap((item) => {
+      const choice = feedbackChoices.get(feedbackIdentity(item.artist, item.track || ""));
+      return choice ? [{ ...item, verdict: choice }] : [];
+    });
+    const matching = filterSavedChoices(current, { query: search.value, scope, verdict: verdict.value });
+    const shown = matching.slice(0, limit);
+    list.innerHTML = shown.map(savedChoiceRow).join("");
+    list.hidden = !shown.length;
+    empty.hidden = Boolean(shown.length);
+    const filtered = search.value.trim() || scope !== "all" || verdict.value !== "all";
+    count.textContent = matching.length
+      ? `Showing ${fmt(shown.length)} of ${fmt(matching.length)} ${filtered ? "matching" : "saved"} choice${matching.length === 1 ? "" : "s"}.`
+      : `No matches among ${fmt(current.length)} saved choice${current.length === 1 ? "" : "s"}.`;
+    more.hidden = matching.length <= limit;
+    more.textContent = `Show ${fmt(Math.min(30, matching.length - limit))} more choices`;
+    scopes.forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.choiceScope === scope)));
+  };
+  const filter = () => { limit = 30; render(); };
+  form.addEventListener("submit", (event) => event.preventDefault());
+  search.addEventListener("input", filter);
+  verdict.addEventListener("change", filter);
+  scopes.forEach((button) => button.addEventListener("click", () => { scope = button.dataset.choiceScope; filter(); }));
+  more.addEventListener("click", () => {
+    const previous = list.children.length;
+    limit += 30;
+    render();
+    // Move into the newly revealed choices rather than dropping keyboard focus
+    // when the final Show more button disappears.
+    list.children[previous]?.querySelector("button")?.focus({ preventScroll: true });
+  });
+  $("#reset-choice-filters").addEventListener("click", () => {
+    search.value = "";
+    verdict.value = "all";
+    scope = "all";
+    filter();
+    search.focus();
+  });
+  render();
+}
+async function viewTaste() {
+  const mine = routeSeq;
+  main.innerHTML = `<p class="loading">Loading your saved taste…</p>`;
+  const [p, fb] = await Promise.all([
+    api("/api/profile").catch((error) => { if (error instanceof ApiError && error.status === 409) return null; throw error; }),
+    feedbackAccess.read(),
+  ]);
+  if (mine !== routeSeq) return;
+  rememberFeedback(fb);
+  if (!p) {
+    main.innerHTML = `<div class="view-head"><div><h1>Your taste so far</h1><p>Add artists you love in <a href="#setup">Setup</a> to find new music. Your saved choices are available below.</p></div></div>${savedChoices(fb)}`;
+    bindSavedChoices();
+    return;
+  }
+  const genres = p.genres ? `<section><h2>Genres</h2>${bars(p.genres.slice(0, 12).map((g) => ({ label: g.tag, value: g.share, text: pct(g.share) })))}</section>` : "";
+  if (!p.plays) {
+    const inputs = p.input_summary || {};
+    const artists = inputs.artists?.length ? inputs.artists : p.picks.loved;
+    const songs = inputs.songs || [];
+    main.innerHTML = `
+      <div class="view-head"><div><h1>Your taste so far</h1>
+      <p>Based on ${esc(basisText(p))}. Your chosen artists and songs guide recommendations now; these are favourites, not a record of plays or skips.</p></div></div>
+      <div class="split section">
+        <section class="stack"><div><h2>Artists from your favourites</h2><ol class="songs">${artists.map((n) => `<li class="song"><div class="song-title">${esc(n)}</div></li>`).join("")}</ol>
+          ${p.picks.disliked.length ? `<p class="small muted">Not for you: ${esc(p.picks.disliked.join(", "))}</p>` : ""}</div>
+          ${songs.length ? `<div><h2>Songs you saved</h2><ol class="songs">${songs.map((s) => `<li class="song"><div><div class="song-title">${esc(s.track)}</div><div class="song-why">${esc(s.artist)}</div></div>${listenLink(s.artist, s.track)}</li>`).join("")}</ol></div>` : ""}
+          <p class="small muted">Showing a sample of your saved input. <a href="#setup">Add or refine your favourites</a>.</p></section>
+        <aside class="stack">${genres || `<p class="muted small">Genres appear once your music map is built.</p>`}</aside>
+      </div>${savedChoices(fb)}`;
+    bindSavedChoices();
+    return;
+  }
+  const fmts = Object.entries(p.formats).map(([k, v]) => `${fmt(v)} ${k === "extended" ? "extended-history" : "account-data"} plays`).join(", ");
+  const trendWord = { rising: "Rising", steady: "Steady", fading: "Fading" };
+  const picked = p.picks.loved.length ? ` · ${fmt(p.picks.loved.length)} picked artists` : "";
+  main.innerHTML = `
+    <div class="view-head"><div><h1>Your taste, measured</h1>
+    <p>${esc(p.first)} to ${esc(p.last)} · ${esc(fmts)}${p.library_items ? ` · ${fmt(p.library_items)} saved/followed/hidden items` : ""}${picked}</p></div></div>
+    <div class="tiles">
+      <div class="tile"><div class="label">Hours listened</div><div class="value">${fmt(Math.round(p.hours))}</div></div>
+      <div class="tile"><div class="label">Streams (30 s or more)</div><div class="value">${fmt(p.streams)}</div></div>
+      <div class="tile"><div class="label">Artists heard</div><div class="value">${fmt(p.artists_heard)}</div></div>
+      <div class="tile" data-tip="exp(entropy) of your listening across artists: how many artists you effectively split your time between"><div class="label">Effective artists</div><div class="value">${fmt(Math.round(p.effective_artists))}</div></div>
+      <div class="tile"><div class="label">Skipped in first 30 s</div><div class="value">${pct(p.skip_rate)}</div></div>
+      ${p.median_listeners_of_top_artists ? `<div class="tile"><div class="label">Typical favourite’s audience</div><div class="value">${compact(p.median_listeners_of_top_artists)}</div></div>` : ""}
+    </div>
+    ${p.has_skip_data ? "" : `<div class="note"><p>Your data has no skip information (the “Account data” export). The <b>Extended streaming history</b> export adds recorded skip signals — request it in Setup.</p></div>`}
+    <div class="split section">
+      <section><h2>Artists, by modelled affinity</h2>
+        <p class="lede small">Affinity weighs how much of each song you play, whether you chose it, and skips, with older listening fading (half-life ${p.model.memory_half_life_days ? `${Math.round(p.model.memory_half_life_days)} days` : "none"}). Artists you picked count as firm favourites. “Keeps you listening” is the estimated chance a play is not skipped, shrunk toward your average when there is little data.</p>
+        <div class="table-wrap"><table><thead><tr><th>#</th><th>Artist</th><th class="num">Streams</th><th class="num">Early-skip rate</th><th class="num">Keeps you listening</th><th>Trend</th></tr></thead>
+        <tbody>${p.top_artists.map((a, i) => `<tr><td class="num">${i + 1}</td><td>${esc(a.name)}${a.picked ? " · picked" : ""}${a.liked_in_app ? " · liked here" : ""}</td>
+          <td class="num">${fmt(a.streams)}</td><td class="num">${a.streams + a.early_skips ? pct(a.skip_rate) : "—"}</td><td class="num">${a.streams + a.early_skips ? pct(a.satisfaction) : "—"}</td><td>${trendWord[a.trend] || "—"}</td></tr>`).join("")}</tbody></table></div>
+      </section>
+      <aside class="stack">
+        ${genres}
+        ${p.top_tracks.length ? `<section><h2>Most-loved songs</h2><ol class="songs">${p.top_tracks.slice(0, 15).map((t) => `<li class="song" data-artist="${esc(t.artist)}" data-track="${esc(t.title)}">
+          <div><div class="song-title">${esc(t.title)}</div><div class="song-why">${esc(t.artist)} · ${fmt(t.streams)} streams</div></div></li>`).join("")}</ol></section>` : ""}
+      </aside>
+    </div>${savedChoices(fb)}`;
+  bindSavedChoices();
+}
+
+// ---------------------------------------------------------------- Accuracy
+function dotWhisker(rows, { chance = null, label = "" } = {}) {
+  const W = 640; const left = 190; const right = 64; const rowH = 36; const top = 8;
+  const H = top + rows.length * rowH + 26;
+  const x = (v) => left + v * (W - left - right);
+  let g = "";
+  for (const t of [0, 0.25, 0.5, 0.75, 1]) {
+    g += `<line class="grid" x1="${x(t)}" x2="${x(t)}" y1="${top}" y2="${H - 22}"></line><text class="tick" x="${x(t)}" y="${H - 6}" text-anchor="middle">${t * 100}%</text>`;
+  }
+  if (chance != null) g += `<line class="chance" x1="${x(chance)}" x2="${x(chance)}" y1="${top}" y2="${H - 22}" stroke-width="2"></line>`;
+  rows.forEach((r, i) => {
+    const cy = top + i * rowH + rowH / 2;
+    g += `<text class="label${r.me ? " me" : ""}" x="${left - 12}" y="${cy + 4}" text-anchor="end">${esc(r.name)}</text>`;
+    if (r.value == null) return;
+    if (r.ci) g += `<line class="whisker" x1="${x(r.ci[0])}" x2="${x(r.ci[1])}" y1="${cy}" y2="${cy}"></line>`;
+    const tipText = `${r.name}: ${pct(r.value)}${r.ci ? ` (95% CI ${pct(r.ci[0])}–${pct(r.ci[1])})` : ""}`;
+    g += `<circle class="dot${r.me ? "" : " base"}" cx="${x(r.value)}" cy="${cy}" r="${r.me ? 6 : 5}"></circle>`;
+    g += `<circle class="hit" cx="${x(r.value)}" cy="${cy}" r="14" data-tip="${esc(tipText)}"></circle>`;
+    g += `<text class="tick" x="${W - right + 10}" y="${cy + 4}">${pct(r.value)}</text>`;
+  });
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}">${g}</svg>`;
+}
+
+function metricsTable(rep) {
+  const rows = [
+    ["Sideband (as chosen)", rep.model, true],
+    ["Same, default weights", rep.default_model],
+    ["Similar-artists only", rep.baselines.similar_artists_only],
+    ["Most popular first", rep.baselines.popularity],
+    ["Random", rep.baselines.random],
+  ];
+  const cell = (v, f = pct) => `<td class="num">${v == null ? "—" : f(v)}</td>`;
+  return `<div class="table-wrap"><table><thead><tr><th>Method</th><th class="num">Recall@10</th><th class="num">Recall@50</th><th class="num">Recall@100</th>
+    <th class="num">Precision@10</th><th class="num">NDCG@50</th><th class="num">Percentile rank</th><th class="num">Preference AUC</th></tr></thead><tbody>
+    ${rows.map(([n, m, me]) => `<tr${me ? ' class="highlight"' : ""}><td>${n}</td>${cell(m["recall@10"])}${cell(m["recall@50"])}${cell(m["recall@100"])}
+      ${cell(m["precision@10"])}${cell(m["ndcg@50"], (v) => v.toFixed(2))}${cell(m.mean_percentile_rank, (v) => `${v.toFixed(0)}%`)}${cell(m.auc, (v) => v.toFixed(2))}</tr>`).join("")}
+    </tbody></table></div>
+    <p class="small muted">Recall@K: share of the new artists you returned to that were in the top K. Percentile rank: where they sat in the full ranking (0% = top); missing artists count as worst rank, including in the random baseline. Preference AUC: how often a repeated artist outranks a consistently skipped one among the covered artists (0.5 = guessing).</p>`;
+}
+
+async function viewAccuracy() {
+  const mine = routeSeq;
+  const [rep, fb, kept] = await Promise.all([api("/api/evaluation"), feedbackAccess.read(), api("/api/kept").catch(() => null)]);
+  if (mine !== routeSeq) return;
+  const eligible = state.personalization?.can_evaluate ?? Boolean(state.plays);
+  const intro = `<p>Sideband hides your most recent listening, predicts from everything before it, then checks the predictions against the new artists you actually went on to love or skip. Settings are chosen on an earlier window and graded on a later one they never saw.</p>`;
+  const runBtn = `<button class="primary" id="run-eval" ${state.job.running || !eligible || state.lookup_available === false ? "disabled" : ""}>${rep && rep.ok ? "Re-run the accuracy test" : "Run the accuracy test"}</button>`;
+  const live = liveAccuracy(fb, kept?.score);
+  if (!rep || !rep.ok) {
+    main.innerHTML = `<div class="view-head"><div><h1>A little proof for your ears.</h1>${intro}</div>
+      <div>${runBtn}<p class="small muted">Takes a few minutes the first time: it maps two past versions of your taste.</p></div></div>
+      ${!state.plays ? `<div class="note"><p>Your Keep and Pass choices are the measure of how well Sideband suits you. If you import a listening history in <a href="#setup">Setup</a>, a replay test also becomes available.</p></div>`
+        : !eligible ? `<div class="note"><p>${esc(state.personalization?.reason || rep?.reason || "More listening history is needed for this test.")} <a href="#setup">Add more history</a></p></div>`
+        : rep && rep.reason ? `<div class="note"><p>${esc(rep.reason)}</p></div>` : ""}${live}`;
+    jobButton($("#run-eval"), "/api/evaluate");
+    return;
+  }
+  const b = rep.baselines;
+  const recallRows = [
+    { name: "Sideband", value: rep.model["recall@50"], ci: rep.model["recall@50_ci"], me: true },
+    { name: "Similar-artists only", value: b.similar_artists_only["recall@50"] },
+    { name: "Most popular first", value: b.popularity["recall@50"] },
+    { name: "Random", value: b.random["recall@50"] },
+  ];
+  const aucRows = [
+    { name: "Sideband", value: rep.model.auc, ci: rep.model.auc_ci, me: true },
+    { name: "Similar-artists only", value: b.similar_artists_only.auc },
+    { name: "Most popular first", value: b.popularity.auc },
+    { name: "Random guess", value: 0.5 },
+  ];
+  const trade = b.exploration_tradeoff || [];
+  const gt = rep.ground_truth;
+  const w = rep.chosen.weights;
+  main.innerHTML = `
+    <div class="view-head"><div><h1>A little proof for your ears.</h1>${intro}</div>
+      <div>${runBtn}<p class="small muted">Last run ${esc(new Date(rep.generated).toLocaleString())}. Test window ${esc(rep.windows.test[0])} to ${esc(rep.windows.test[1])}.</p></div></div>
+    ${rep.demo ? `<div class="note"><p>These numbers come from the simulated demo listener, not from you.</p></div>` : ""}
+    ${rep.enough_data ? "" : `<div class="note"><p>Only ${gt.test_adopted} new artists were adopted in the test window, so these numbers are very uncertain. More history (the Extended streaming history export) helps.</p></div>`}
+    ${rep.selection ? `<div class="note"><p><b>${rep.selection.personalised ? "This test accepted personalized settings." : "This test kept default settings."}</b> ${esc(rep.selection.reason || "Settings change only when validation supports an improvement.")}</p></div>` : ""}
+    ${state.personalised_model && state.personalization?.model_current === false ? `<div class="note"><p>Your recommendations still use the earlier fitted settings. The results below describe this history test.</p></div>` : ""}
+    ${state.personalization?.tested_current === false ? `<div class="note"><p>This report is from earlier listening data. Adding enough new history and using “Improve from my history” checks it again.</p></div>` : ""}
+    <div class="summary section">${rep.summary.map((s) => `<p>${esc(s)}</p>`).join("")}</div>
+    <div class="section stack">
+      <section><h2>Did the top 50 contain them?</h2><p class="lede small">Recall@50 on the held-out window, ${gt.test_adopted} newly loved artists. Line: 95% bootstrap interval.</p>
+        ${dotWhisker(recallRows, { label: "Recall at 50 by method" })}</section>
+      <section><h2>Loved vs. skipped</h2><p class="lede small">Preference AUC over ${(rep.model.auc_n || [gt.test_adopted, gt.test_rejected])[0]} loved and ${(rep.model.auc_n || [gt.test_adopted, gt.test_rejected])[1]} skipped new artists available to the model. Grey line: guessing.</p>
+        ${rep.model.preference_available ? `<p class="small muted">${fmt(rep.model.preference_available[0])} of ${fmt(rep.model.preference_available[1])} heard artists could be graded for preference. Missing discoveries still count as misses in the top-50 test.</p>` : ""}
+        ${dotWhisker(aucRows, { chance: 0.5, label: "Preference AUC by method" })}</section>
+    </div>
+    <section class="section"><h2>All metrics</h2>${metricsTable(rep)}</section>
+    <div class="split-even section">
+      <section><h2>What changes when you explore</h2><p class="lede small">The same held-out test at different dial settings. Compare measured recall with audience size and genre range.</p>
+        <table><thead><tr><th>Dial</th><th class="num">Hits in top 50</th><th class="num">Recall@50</th><th class="num">Typical audience</th><th class="num">Genres</th></tr></thead><tbody>
+        ${trade.map((t) => `<tr><td>${t.exploration === 0 ? "Safe bets" : t.exploration === 1 ? "Adventurous" : "Balanced"}</td><td class="num">${t["hits@50"]}</td><td class="num">${pct(t["recall@50"])}</td><td class="num">${compact(t.median_listeners)}</td><td class="num">${t.distinct_genres}</td></tr>`).join("")}
+        </tbody></table></section>
+      <section><h2>What it learned about you</h2><p class="lede small">Chosen on the validation window (${esc(rep.windows.validation[0])} to ${esc(rep.windows.validation[1])}), then frozen.</p>
+        <table><tbody>
+          <tr><td>Taste memory half-life</td><td class="num">${rep.chosen.memory_half_life_days ? `${Math.round(rep.chosen.memory_half_life_days)} days` : "no decay"}</td></tr>
+          <tr><td>Seed weighting</td><td class="num">affinity<sup>${rep.chosen.seed_power}</sup></td></tr>
+          <tr><td>Random-walk restart</td><td class="num">${rep.chosen.restart_probability}</td></tr>
+          ${Object.entries(w).map(([k, v]) => `<tr><td>Weight: ${esc(FEATURE_NAMES[k] || k)}</td><td class="num">${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(2)}</td></tr>`).join("")}
+        </tbody></table></section>
+    </div>
+    ${live}
+    <section class="section note">
+      <h2>Limits worth knowing</h2>
+      <p>No recommender can be perfectly accurate: taste depends on mood and context, and these tests can only grade artists you happened to hear. Artists you found through friends, films or radio may not be reachable from similarity data at all (${pct(1 - (rep.model.coverage ?? 1))} of yours weren’t). Similarity data is today’s, so the test window is graded with slightly newer data than you had then. Your own ratings are the real-world check.</p>
+      ${rep.limitations?.length ? `<ul>${rep.limitations.map((item) => `<li>${esc(item)}</li>`).join("")}</ul>` : ""}
+    </section>`;
+  jobButton($("#run-eval"), "/api/evaluate");
+}
+
+function liveAccuracy(fb, score) {
+  const o = fb.overall;
+  const songs = fb.song_overall || { rated: 0 };
+  const rows = Object.entries(fb.by_exploration || {});
+  const songKinds = { similar_song: "Songs like your favourites", new_artist: "From new artists", deep_cut: "Unheard songs by artists you love", song: "Other songs" };
+  const songRows = Object.entries(fb.songs_by_kind || {});
+  const cal = fb.calibration;
+  const plain = scoreLine(score);
+  return `<section class="section"><h2>Live accuracy: your ratings</h2>
+    ${plain ? `<p>${esc(plain)}</p>` : ""}
+    <h3>Artists</h3>
+    ${o.rated ? `<p>You liked <b>${o.likes} of ${o.rated}</b> rated artists (${pct(o.like_rate)}; 95% interval ${pct(o.ci95[0])}–${pct(o.ci95[1])}).</p>`
+      : `<p class="muted">Rate artists with Like / Not for me to see your artist like rate, with an error bar.</p>`}
+    ${rows.length ? `<table><thead><tr><th>Dial setting</th><th class="num">Liked</th><th class="num">Rated</th><th class="num">Like rate (95% interval)</th></tr></thead><tbody>
+      ${rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td class="num">${v.likes}</td><td class="num">${v.rated}</td><td class="num">${pct(v.like_rate)} (${pct(v.ci95[0])}–${pct(v.ci95[1])})</td></tr>`).join("")}</tbody></table>` : ""}
+    <p class="small muted">${cal ? `Score-based “chance you’ll like it” estimates use your ${cal.n} ratings and remain uncertain.` : "With enough varied ratings, Sideband can estimate a chance you’ll like a recommendation. Percentile scores alone are not probabilities."}</p>
+    <h3>Songs</h3>
+    ${songs.rated ? `<p>You liked <b>${songs.likes} of ${songs.rated}</b> rated songs (${pct(songs.like_rate)}; 95% interval ${pct(songs.ci95[0])}–${pct(songs.ci95[1])}). Song ratings are counted separately from artist ratings.</p>`
+      : `<p class="muted">Use Like / Dislike on Songs to see your song like rate separately.</p>`}
+    ${songRows.length ? `<table><thead><tr><th>Song list</th><th class="num">Liked</th><th class="num">Rated</th><th class="num">Like rate (95% interval)</th></tr></thead><tbody>
+      ${songRows.map(([kind, v]) => `<tr><td>${esc(songKinds[kind] || kind)}</td><td class="num">${v.likes}</td><td class="num">${v.rated}</td><td class="num">${pct(v.like_rate)} (${pct(v.ci95[0])}–${pct(v.ci95[1])})</td></tr>`).join("")}</tbody></table>` : ""}
+    <p class="small muted">Already know choices and preview or music-link interest shape recommendations but aren’t counted as likes or dislikes. You choose which music to rate, so these results describe those choices, not every recommendation or a guarantee about the next one. <a href="#taste">Review or undo your saved choices</a>.</p>
+  </section>`;
+}
+
+// ---------------------------------------------------------------- Setup
+const pickRow = (a) => `<li data-name="${esc(a.name)}">
+    ${a.image ? `<img src="${esc(a.image)}" alt="" width="44" height="44" loading="lazy">` : `<span class="avatar" aria-hidden="true">${esc(a.name.slice(0, 1))}</span>`}
+    <div><div class="pick-name">${esc(a.name)}</div>${a.fans ? `<div class="small muted">${compact(a.fans)} fans</div>` : ""}</div>
+    <div class="row"><button data-pick="love" aria-pressed="${a.picked === "love"}" aria-label="Love ${esc(a.name)}">Love</button>
+    <button data-pick="dislike" class="quiet" aria-pressed="${a.picked === "dislike"}" aria-label="Not for me: ${esc(a.name)}">Not for me</button></div></li>`;
+
+function pickChips(picks) {
+  const chip = (name, verdict) => `<button class="pick-chip ${verdict}" data-unpick="${esc(name)}" aria-label="Remove ${esc(name)}">${esc(name)} <span aria-hidden="true">×</span></button>`;
+  return `${picks.loved.length ? `<div class="chips">${picks.loved.map((n) => chip(n, "love")).join("")}</div>` : `<p class="small muted">No favourites picked yet.</p>`}
+    ${picks.disliked.length ? `<p class="small muted">Not for you:</p><div class="chips">${picks.disliked.map((n) => chip(n, "dislike")).join("")}</div>` : ""}`;
+}
+
+const artistKey = artistIdentity;
+function pendingPicks(base = savedPicks || { loved: [], disliked: [] }) {
+  const picks = { loved: [...base.loved], disliked: [...base.disliked] };
+  for (const { artist, verdict } of pickIntents) {
+    picks.loved = picks.loved.filter((name) => artistKey(name) !== artistKey(artist));
+    picks.disliked = picks.disliked.filter((name) => artistKey(name) !== artistKey(artist));
+    if (verdict === "love") picks.loved.push(artist);
+    if (verdict === "dislike") picks.disliked.push(artist);
+  }
+  return picks;
+}
+
+function announcePicks() {
+  document.dispatchEvent(new CustomEvent("sideband-picks", { detail: pendingPicks() }));
+  updateBuildControls();
+}
+
+function saveArtistPick(artist, verdict) {
+  const intent = { id: ++pickIntentSeq, artist, verdict };
+  pickIntents.push(intent);
+  pickSaving++;
+  announcePicks();
+  const work = async () => {
+    try {
+      savedPicks = await api("/api/picks", { method: "POST", body: { artist, verdict } });
+      autoBuildTried = false; // This week may update the map again for the changed taste
+      // Refresh counts/readiness after the write, without redrawing whichever view is open.
+      await refreshState().catch(() => {});
+      return savedPicks;
+    } finally {
+      pickIntents = pickIntents.filter((item) => item.id !== intent.id);
+      pickSaving--;
+      announcePicks();
+    }
+  };
+  const result = pickQueue.then(work, work);
+  pickQueue = result.catch(() => {});
+  return result;
+}
+
+function artistPickerMarkup() {
+  return `<div class="setup-workspace"><section class="artist-starter" aria-labelledby="artist-heading">
+    <div class="artist-picker-head"><div><h2 id="artist-heading">Who’s on repeat?</h2><p class="muted">Search for an artist, or choose a few favourites below.</p></div></div>
+    <form id="pick-form" class="picker artist-search" role="search" autocomplete="off"><label for="pick-q" class="sr-only">Search artists</label>
+      <input id="pick-q" type="search" placeholder="Search any artist…" enterkeyhint="search" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="pick-status"><button type="submit">Search</button></form>
+    <ul class="pick-results" id="pick-results"></ul><p class="small muted" id="pick-status" role="status"></p>
+    <details class="style-browser"><summary>Browse by style <span id="style-selected">All styles</span></summary><div class="artist-styles" role="group" aria-label="Browse artists by style"><button type="button" data-style="" aria-pressed="true">All styles</button>${ARTIST_STYLES.map((style) => `<button type="button" data-style="${esc(style.id)}" aria-pressed="false">${esc(style.label)}</button>`).join("")}</div></details>
+    <div id="artist-grid" class="artist-grid" role="group" aria-label="Artists to choose"></div>
+    <div class="row artist-browse"><button id="artist-more" type="button">Show more artists</button><p class="small muted" id="artist-browse-hint"></p></div>
+  </section><aside class="starting-point" aria-labelledby="starting-heading">
+    <h2 id="starting-heading">Your starting point</h2><p class="small muted">A little of what you love. A way into something new.</p>
+    <p id="artist-count" class="artist-count" role="status"></p>
+    <div class="artist-selected"><div id="pick-chips" tabindex="-1"></div></div>
+    <p id="artist-save-status" class="small" role="status"></p>
+    <div class="build-row artist-build"><span id="mobile-pick-count" class="mobile-pick-count"></span><button class="primary" id="build"></button><span class="small muted" id="build-hint"></span><a href="#taste" id="picker-taste" ${state.has_data ? "" : "hidden"}>View my taste</a></div>
+    <p class="starting-footnote">No account. No export needed.<br>Your favourites stay on this device.</p>
+  </aside></div>`;
+}
+
+function updateBuildControls() {
+  const btn = $("#build");
+  if (!btn) return;
+  const ready = canBuild();
+  const onlyOpen = state.graph_ready && ["current", "history", "more_history", "taste"].includes(nextRecommendationAction(state));
+  btn.disabled = !ready || state.job.running || importing || quickSaving || pickSaving > 0 || (state.lookup_available === false && !onlyOpen);
+  btn.textContent = buildLabel();
+  const historyButton = $("#prepare-history");
+  if (historyButton) {
+    historyButton.hidden = !state.plays;
+    historyButton.disabled = state.job.running || importing || quickSaving || pickSaving > 0 || (state.lookup_available === false && !onlyOpen);
+    historyButton.textContent = buildLabel();
+  }
+  [$("#clear-data"), $("#clear-fb"), $("#backup-save"), $("#backup-file"), $("#backup-restore")].forEach((b) => { if (b) b.disabled = importing || quickSaving || pickSaving > 0; });
+  const files = $("#files");
+  if (files) files.disabled = importing || quickSaving || pickSaving > 0;
+  const drop = $("#drop");
+  if (drop) drop.setAttribute("aria-disabled", String(importing || quickSaving || pickSaving > 0));
+  document.querySelectorAll("[data-artist-toggle], #pick-chips button, #pick-results button").forEach((button) => { button.disabled = importing || quickSaving; });
+  const hint = $("#build-hint");
+  if (!hint) return;
+  if (state.lookup_available === false) hint.textContent = "Your favourites can be saved here now. Connect the lookup service to find new music.";
+  else if (quickSaving || pickSaving) hint.textContent = "Saving your favourites…";
+  else if (importing) hint.textContent = "Finish importing first. Your favourite picks are kept.";
+  else if (state.job.running) hint.textContent = "Working on it (see the progress bar). Picks you add meanwhile are used when you update next.";
+  else if (!ready) hint.textContent = "Tap a few artists you love to get started.";
+  else if (!state.plays && (state.input_summary?.positive_artists ?? state.picks.loved) < 3) hint.textContent = "A few more different artists can broaden your taste map, but you can start now.";
+  else hint.textContent = state.plays
+    ? `Maps your taste and checks the best settings from your history in one step${BROWSER ? "; keep this page open" : ""}. The first run can take several minutes.`
+    : `Takes a minute or two${BROWSER ? "; keep this page open" : ""}.`;
+  const quickForm = $("#quick-form");
+  if (quickForm) quickForm.dispatchEvent(new Event("input-state"));
+}
+
+function buildLabel() {
+  if (state.plays && nextRecommendationAction(state) === "prepare") return "Improve from my history";
+  if (state.graph_exists && !state.graph_ready) return "Update my recommendations";
+  if (state.graph_exists) return "Open my recommendations";
+  return "Find my music";
+}
+
+function quickStarterMarkup() {
+  const kind = store("mf.quickKind") === "songs" ? "songs" : "artists";
+  const draft = (store("mf.quickDraft") || "").slice(0, 200000);
+  return `<section class="quick-starter" aria-labelledby="quick-heading"><h2 id="quick-heading">Add a music list or playlist file</h2>
+    <p class="small muted">Already have a list? Paste or upload it here.</p>
+    <form id="quick-form">
+      <fieldset class="quick-kind"><legend>What are you adding?</legend><label><input type="radio" name="quick-kind" value="artists" ${kind === "artists" ? "checked" : ""}> Favourite artists</label><label><input type="radio" name="quick-kind" value="songs" ${kind === "songs" ? "checked" : ""}> Favourite songs or playlist</label></fieldset>
+      <label for="quick-text" id="quick-text-label">${kind === "songs" ? "Artist — Song, one per line" : "Artist names, one per line"}</label>
+      <textarea id="quick-text" rows="5" maxlength="200000" spellcheck="false" aria-describedby="quick-help" placeholder="${kind === "songs" ? "Radiohead — Weird Fishes/Arpeggi\nBjörk — Joga" : "Radiohead\nBjörk\nStevie Wonder"}">${esc(draft)}</textarea>
+      <p class="small muted" id="quick-help">${kind === "songs" ? "Put the artist first, then a dash and the song title. A playlist CSV or TSV with artist and song columns works too." : "Keep each artist on its own line, including names with commas. Song or playlist files with artist columns work too."} Spotify links alone don’t include names; paste the names instead.</p>
+      <div class="row"><button type="submit" class="primary" id="quick-preview">Review my taste</button><button type="button" id="quick-file-button">Choose CSV, TSV or text file</button></div>
+      <input id="quick-files" type="file" accept=".csv,.tsv,.txt,text/plain,text/csv,text/tab-separated-values" hidden>
+    </form>
+    <p id="quick-status" class="small" role="status"></p>
+    <div id="quick-review"></div>
+    <div class="row" id="quick-save-controls" hidden><button id="quick-use" class="primary" disabled>Use this taste</button><button id="quick-edit" class="quiet">Edit my text</button></div>
+    <p id="quick-saved" class="small muted">${state.has_data ? `Saved input: ${esc(basisText())}.` : "Names are added to your saved taste only after you choose “Use this taste”."}</p>
+    <a href="#taste" id="quick-taste" ${state.has_data ? "" : "hidden"}>View my saved taste</a>
+  </section>`;
+}
+
+function bindQuickStarter(chipsBox) {
+  const form = $("#quick-form");
+  const text = $("#quick-text");
+  const status = $("#quick-status");
+  const box = $("#quick-review");
+  const previewButton = $("#quick-preview");
+  const useButton = $("#quick-use");
+  const saveControls = $("#quick-save-controls");
+  const fileButton = $("#quick-file-button");
+  const fileInput = $("#quick-files");
+  const kindInputs = [...form.querySelectorAll("input[name=quick-kind]")];
+  const kind = () => kindInputs.find((input) => input.checked).value;
+  const requests = latestRequest();
+  let review = null;
+  let filename = "";
+  const effectiveKind = () => quickInputKind(kind(), filename);
+  let busy = false;
+  const update = () => {
+    previewButton.disabled = busy || quickSaving || !text.value.trim();
+    useButton.disabled = busy || quickSaving || importing || pickSaving > 0 || !quickReviewCurrent(review, text.value, effectiveKind(), filename);
+    fileButton.disabled = busy || quickSaving || importing || pickSaving > 0;
+  };
+  form.addEventListener("input-state", update);
+  const invalidate = () => {
+    requests.start();
+    review = null;
+    useButton.disabled = true;
+    saveControls.hidden = true;
+    box.innerHTML = "";
+    status.textContent = "Review your changed text before saving it.";
+    store("mf.quickDraft", text.value);
+    store("mf.quickKind", kind());
+    update();
+  };
+  text.addEventListener("input", () => { filename = ""; invalidate(); });
+  kindInputs.forEach((input) => input.addEventListener("change", () => {
+    filename = "";
+    invalidate();
+    $("#quick-text-label").textContent = kind() === "songs" ? "Artist — Song, one per line" : "Artist names, one per line";
+    text.placeholder = kind() === "songs" ? "Radiohead — Weird Fishes/Arpeggi\nBjörk — Joga" : "Radiohead\nBjörk\nStevie Wonder";
+    $("#quick-help").textContent = (kind() === "songs"
+      ? "Put the artist first, then a dash and the song title. A playlist CSV or TSV with artist and song columns works too."
+      : "Keep each artist on its own line, including names with commas. Song or playlist files with artist columns work too.")
+      + " Spotify links alone don’t include names; paste the names instead.";
+  }));
+  const preview = async () => {
+    const token = requests.start();
+    const snapshot = { text: text.value, kind: effectiveKind(), name: filename };
+    busy = true;
+    review = null;
+    saveControls.hidden = true;
+    update();
+    status.textContent = "Reading your music list…";
+    try {
+      const parsed = await api("/api/quick-input", { method: "POST", body: { ...snapshot, preview: true } });
+      if (!requests.current(token) || !form.isConnected) return;
+      review = { ...snapshot, preview: parsed };
+      const items = parsed.items || [];
+      const notices = [...(parsed.errors || []), ...(parsed.warnings || [])];
+      box.innerHTML = `${notices.length ? `<ul class="quick-notices">${notices.map((note) => `<li>${esc(note)}</li>`).join("")}</ul>` : ""}
+        ${items.length ? `<div class="quick-review-list"><table><thead><tr><th scope="col">Artist</th><th scope="col">Song, if provided</th></tr></thead><tbody>${items.map((item) => `<tr><td>${esc(item.artist)}</td><td>${esc(item.track || "—")}</td></tr>`).join("")}</tbody></table></div>` : ""}`;
+      saveControls.hidden = !items.length;
+      status.textContent = parsed.can_save
+        ? `${fmt(items.length)} favourite${items.length === 1 ? "" : "s"} found. Check that artist and song names are in the right columns, then choose “Use this taste”. These names haven’t been added to your saved taste yet.`
+        : "This list needs a change before it can be saved. Edit the text and review it again.";
+      useButton.textContent = `Use these ${fmt(items.length)} favourite${items.length === 1 ? "" : "s"}`;
+    } catch (err) {
+      if (requests.current(token) && form.isConnected) {
+        box.innerHTML = "";
+        status.textContent = `Couldn’t read this list: ${err.message}. Edit it or try another file.`;
+      }
+    } finally {
+      busy = false;
+      if (form.isConnected) update();
+    }
+  };
+  form.addEventListener("submit", (event) => { event.preventDefault(); preview(); });
+  $("#quick-edit").addEventListener("click", () => { text.focus(); text.scrollIntoView({ block: "center" }); });
+  fileButton.addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", async () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+    const readToken = requests.start();
+    review = null;
+    saveControls.hidden = true;
+    box.innerHTML = "";
+    update();
+    if (file.size > 200000) { status.textContent = "Choose a text or playlist file smaller than 200 KB, or paste up to 500 favourites."; fileInput.value = ""; return; }
+    busy = true;
+    update();
+    status.textContent = "Reading your file…";
+    try {
+      const contents = new TextDecoder("utf-8", { fatal: true }).decode(await file.arrayBuffer());
+      if (!requests.current(readToken) || !form.isConnected) return;
+      text.value = contents;
+      invalidate();
+      filename = file.name;
+      await preview();
+    } catch (err) { if (requests.current(readToken) && form.isConnected) status.textContent = `Couldn’t read this file: ${err.message}. Save the file as UTF-8 text and try again.`; }
+    finally { busy = false; fileInput.value = ""; if (form.isConnected) update(); }
+  });
+  useButton.addEventListener("click", async () => {
+    if (quickSaving || importing || pickSaving > 0 || !quickReviewCurrent(review, text.value, effectiveKind(), filename)) return;
+    const snapshot = { text: review.text, kind: review.kind, name: review.name };
+    quickSaving = true;
+    text.disabled = true;
+    kindInputs.forEach((input) => { input.disabled = true; });
+    update();
+    updateBuildControls();
+    status.textContent = "Saving your favourites…";
+    try {
+      const saved = await api("/api/quick-input", { method: "POST", body: { ...snapshot, preview: false } });
+      autoBuildTried = false;
+      await refreshState();
+      if (saved.picks) { savedPicks = saved.picks; announcePicks(); }
+      store("mf.quickDraft", "");
+      if (!form.isConnected) return;
+      const added = saved.added_library_items || 0;
+      status.textContent = `${added ? `${fmt(added)} new favourite${added === 1 ? "" : "s"} saved.` : "These favourites are already saved."} ${state.lookup_available === false ? "Your saved taste is ready to view. New music discovery needs the lookup service." : "Choose “Find my music” or “Update my recommendations” to use them."}${saved.removed_disliked_picks ? ` ${fmt(saved.removed_disliked_picks)} previous “Not for me” choice${saved.removed_disliked_picks === 1 ? " was" : "s were"} replaced by these favourites.` : ""}`;
+      $("#quick-saved").textContent = `Saved input: ${basisText()}. Your plays and ratings are kept.`;
+      $("#quick-taste").hidden = false;
+      saveControls.hidden = true;
+      review = null;
+      text.value = "";
+      box.innerHTML = "";
+    } catch (err) { if (form.isConnected) status.textContent = `Couldn’t save your list: ${err.message}. Your reviewed list is still here to retry.`; }
+    finally {
+      quickSaving = false;
+      text.disabled = false;
+      kindInputs.forEach((input) => { input.disabled = false; });
+      if (form.isConnected) update();
+      updateBuildControls();
+    }
+  });
+  update();
+}
+
+async function viewSetup() {
+  const mine = routeSeq;
+  const intentAtStart = pickIntentSeq;
+  const savedAtStart = savedPicks;
+  const picks = await api("/api/picks");
+  if (mine !== routeSeq) return;
+  // An older read must not undo a save that finished while this view was opening.
+  if (!savedPicks || (!pickSaving && intentAtStart === pickIntentSeq && savedAtStart === savedPicks)) savedPicks = picks;
+  main.innerHTML = `
+    <div class="view-head setup-head"><div><h1>Good music finds good company.</h1>
+      <p>Start with artists you love. We’ll follow the connections.</p></div><a class="text-link" href="#this-week" ${state.graph_exists ? "" : "hidden"}>Back to your discoveries</a></div>
+    ${BROWSER && IOS && !STANDALONE && !state.demo ? `<div class="note"><p><b>On an iPhone, do this first:</b> tap Share → <b>Add to Home Screen</b>, then open Sideband from the new icon and do the steps below there. The Home Screen app keeps its own copy of your data, separate from Safari, and Safari may delete website data after about a week without a visit.</p></div>` : ""}
+    ${artistPickerMarkup()}
+    <details class="section"><summary>More ways to add music</summary><div class="stack">${quickStarterMarkup()}</div></details>
+    <details id="history-details" class="section export-help"><summary>Optional extra: import a Spotify listening history</summary><div class="stack">
+      <div><h2>Add a Spotify export you already have</h2>
+        <p>Already have a Spotify export? Choose the ZIP or all its JSON files together. Importing it again adds only new plays, and keeps your picks and ratings.</p>
+        <label class="drop" id="drop" for="files"><strong>Drop my_spotify_data.zip, or the JSON files inside it</strong>
+          <span class="muted">or ${BROWSER ? "tap" : "click"} to choose files. Everything stays ${WHERE}.</span></label>
+        <input id="files" type="file" multiple accept=".zip,.json,application/json,application/zip" hidden>
+        <ul class="file-log" id="file-log"></ul>
+        <p class="small" id="data-status" role="status">${state.plays ? `${fmt(state.plays)} plays imported.` : "No history imported yet."}</p>
+        <div class="row"><button class="primary" id="prepare-history" ${state.plays ? "" : "hidden"}>Improve from my history</button><a href="#accuracy" ${state.plays ? "" : "hidden"} id="history-accuracy">See my accuracy</a></div>
+        <p class="small muted">History enables accuracy tests against later listening. Your picked favourites already work.</p></div>
+    </div></details>
+    ${BROWSER ? `<details class="section"><summary>Where your data lives</summary><div class="stack">
+      <p>Your picks, listening history, ratings and learned interest are saved ${WHERE}, not on a server. Other devices start empty${IOS ? ", and on an iPhone the Home Screen app and Safari each keep their own copy" : ""}. Clearing this site’s data in the browser settings deletes it.</p>
+      ${state.demo ? `<p><a href="./">Leave the demo</a></p>` : `<p>Curious first? <a href="?demo=1">Try it with a simulated listener</a> (nothing is saved).</p>`}</div></details>` : ""}
+    ${!state.demo ? `<details class="section"><summary>Backup and restore</summary><div class="stack">
+      <p>Your picks, ratings, preview and music-link interest, and imported listening history stay ${WHERE} when you close the app. Save a backup before changing devices or removing the app.</p>
+      <div class="row"><button id="backup-save">Save a backup</button><button id="backup-restore" type="button">Restore a backup</button>
+      <input id="backup-file" type="file" accept=".json,application/json" hidden></div></div></details>` : ""}
+    <details class="section"><summary>Manage or delete my data</summary>
+      <div class="row"><button id="clear-data">Delete my picks and listening data</button><button id="clear-fb">Delete my ratings and learned interest</button></div></details>`;
+
+  const backup = $("#backup-save");
+  if (backup) backup.addEventListener("click", async () => {
+    try {
+      const data = await api("/api/backup");
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: 'application/json' }));
+      link.download = 'sideband-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+      link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 60000);
+    } catch (error) { toast(error.message, 10000); }
+  });
+  $("#backup-restore")?.addEventListener("click", () => $("#backup-file").click());
+  $("#backup-file")?.addEventListener("change", async event => {
+    const file = event.target.files[0]; if (!file) return;
+    if (importing || quickSaving || pickSaving) { event.target.value = ""; toast("Finish saving your music before restoring a backup."); return; }
+    if (file.size > 128 * 1024 * 1024) { toast('That backup is too large (maximum 128 MB).'); return; }
+    if (!confirm('Replace the picks, ratings, learned interest and listening history on this device with this backup? Save a backup of your current data first.')) return;
+    try { await api('/api/restore', { method: 'POST', body: file }); location.reload(); }
+    catch (error) { toast(error.message, 10000); }
+    event.target.value = '';
+  });
+  updateBuildControls();
+
+  // --- picking
+  const results = $("#pick-results");
+  const pickStatus = $("#pick-status");
+  const chipsBox = $("#pick-chips");
+  bindQuickStarter(chipsBox);
+  const grid = $("#artist-grid");
+  const styleButtons = [...document.querySelectorAll("[data-style]")];
+  const moreButton = $("#artist-more");
+  const pickerStatus = $("#artist-save-status");
+  let chosen = pendingPicks();
+  let styles = [];
+  let seenNames = [];
+  const stillHere = () => mine === routeSeq && grid.isConnected;
+  const syncPicks = (now) => {
+    if (!stillHere()) return;
+    chosen = now;
+    const focused = document.activeElement;
+    const focusedChip = focused?.closest("#pick-chips button[data-unpick]")?.dataset.unpick;
+    const focusIndex = focusedChip ? [...chipsBox.querySelectorAll("button")].indexOf(focused) : -1;
+    chipsBox.innerHTML = pickChips(now);
+    if (focusedChip) {
+      const chips = [...chipsBox.querySelectorAll("button")];
+      (chips.find((button) => artistKey(button.dataset.unpick) === artistKey(focusedChip)) || chips[Math.min(focusIndex, chips.length - 1)] || chipsBox).focus();
+    }
+    const loved = new Set(now.loved.map(artistKey));
+    const disliked = new Set(now.disliked.map(artistKey));
+    grid.querySelectorAll("button[data-artist-toggle]").forEach((button) => {
+      const selected = loved.has(artistKey(button.dataset.artistToggle));
+      button.setAttribute("aria-pressed", String(selected));
+      button.setAttribute("aria-label", `${selected ? "Remove" : "Pick"} ${button.dataset.artistToggle}${selected ? " from" : " as one of"} my favourites`);
+      button.querySelector(".artist-choice-mark").innerHTML = selected ? `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg><span>Picked</span>` : `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>Pick</span>`;
+    });
+    results.querySelectorAll("li[data-name]").forEach((item) => {
+      item.querySelectorAll("button[data-pick]").forEach((button) => {
+        button.setAttribute("aria-pressed", String((button.dataset.pick === "love" ? loved : disliked).has(artistKey(item.dataset.name))));
+      });
+    });
+    $("#artist-count").textContent = `${fmt(now.loved.length)} favourite${now.loved.length === 1 ? "" : "s"} picked`;
+    $("#mobile-pick-count").textContent = $("#artist-count").textContent;
+    pickerStatus.textContent = pickSaving ? "Saving your choices…" : now.loved.length ? "Saved. You can change your picks anytime." : "";
+    $("#picker-taste").hidden = !(now.loved.length || state.has_data);
+    const next = artistChoices({ styles, selected: now.loved, excluded: [...now.disliked, ...seenNames], limit: 24 });
+    moreButton.textContent = next.length ? "Show more artists" : "Back to first artists";
+    moreButton.dataset.restart = String(!next.length);
+  };
+  const drawGrid = () => {
+    // New selections can change the catalog order. Exclude boards already shown
+    // rather than offsetting into a newly ranked list and skipping artists.
+    const items = artistChoices({ styles, selected: chosen.loved, excluded: [...chosen.disliked, ...seenNames], limit: 24 });
+    seenNames.push(...items.map((artist) => artist.name));
+    grid.innerHTML = items.length ? items.map((artist) => `<button type="button" class="artist-choice" data-artist-toggle="${esc(artist.name)}" aria-pressed="false"><span class="artist-choice-name">${esc(artist.name)}</span><span class="artist-choice-mark" aria-hidden="true">+ Pick</span></button>`).join("") : `<p class="muted">You’ve reached the end of this selection. Try another style.</p>`;
+    $("#artist-browse-hint").textContent = styles.length ? `Browsing ${ARTIST_STYLES.find((style) => style.id === styles[0]).label.toLowerCase()}.` : "Any style counts. Pick what you enjoy.";
+    syncPicks(chosen);
+    updateBuildControls();
+  };
+  setupPickListener = (event) => syncPicks(event.detail);
+  document.addEventListener("sideband-picks", setupPickListener);
+  drawGrid();
+  styleButtons.forEach((button) => button.addEventListener("click", () => {
+    styles = button.dataset.style ? [button.dataset.style] : [];
+    seenNames = [];
+    styleButtons.forEach((item) => item.setAttribute("aria-pressed", String(item === button)));
+    drawGrid();
+    $("#style-selected").textContent = button.textContent;
+    const disclosure = button.closest("details"); disclosure.open = false; disclosure.querySelector("summary").focus();
+  }));
+  moreButton.addEventListener("click", () => {
+    if (moreButton.dataset.restart === "true") seenNames = [];
+    drawGrid();
+    grid.querySelector("button")?.focus();
+  });
+  grid.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-artist-toggle]");
+    if (!button || importing || quickSaving) return;
+    const name = button.dataset.artistToggle;
+    const verdict = chosen.loved.some((artist) => artistKey(artist) === artistKey(name)) ? "remove" : "love";
+    saveArtistPick(name, verdict).catch((error) => {
+      if (stillHere()) pickerStatus.textContent = `Couldn’t save ${name}: ${error.message}. Tap again to retry.`;
+    });
+  });
+  const say = (text) => { if (stillHere()) pickStatus.textContent = text; };
+  let seq = 0;
+  let timer;
+  const search = async (q) => {
+    const mine = ++seq;
+    if (!stillHere()) return;
+    if (!q) { results.innerHTML = ""; say(""); return; }
+    if (state.lookup_available === false) {
+      results.innerHTML = `<li class="muted">Artist search needs a connected lookup service. The artist choices below work now.</li>`;
+      say("Artist search is unavailable until the lookup service connects.");
+      return;
+    }
+    results.innerHTML = `<li class="loading">Searching…</li>`;
+    try {
+      const res = await api(`/api/search/artists?q=${enc(q)}`);
+      if (mine !== seq || !stillHere()) return; // a newer search or view is on its way
+      results.innerHTML = res.items.length ? res.items.map(pickRow).join("")
+        : `<li class="muted">No artist called “${esc(q)}” found. Check the spelling?</li>`;
+      syncPicks(chosen);
+      say(res.items.length ? `${res.items.length} artist${res.items.length === 1 ? "" : "s"} found.` : "No artist found.");
+    } catch (err) {
+      if (mine !== seq || !stillHere()) return;
+      results.innerHTML = `<li class="error">${esc(err.message)}</li>`;
+      say(err.message);
+    }
+  };
+  const input = $("#pick-q");
+  input.addEventListener("input", () => { seq++; clearTimeout(timer); timer = setTimeout(() => search(input.value.trim()), 350); });
+  $("#pick-form").addEventListener("submit", (e) => { e.preventDefault(); clearTimeout(timer); search(input.value.trim()); });
+
+  results.addEventListener("click", async (e) => {
+    const btn = e.target.closest("button[data-pick]");
+    if (!btn || importing || quickSaving) return;
+    const li = btn.closest("li[data-name]");
+    const name = li.dataset.name;
+    const verdict = btn.getAttribute("aria-pressed") === "true" ? "remove" : btn.dataset.pick;
+    try {
+      await saveArtistPick(name, verdict);
+      if (!stillHere()) return;
+      say(verdict === "love" ? `${name} added to your favourites.` : verdict === "dislike" ? `${name} marked as not for you.` : `${name} removed.`);
+    } catch (err) { if (stillHere()) say(err.message); }
+  });
+  $("#pick-chips").addEventListener("click", async (e) => {
+    const btn = e.target.closest("button[data-unpick]");
+    if (!btn || importing || quickSaving) return;
+    const name = btn.dataset.unpick;
+    try {
+      await saveArtistPick(name, "remove");
+      if (!stillHere()) return;
+      say(`${name} removed.`);
+    } catch (err) { if (stillHere()) pickerStatus.textContent = `Couldn’t remove ${name}: ${err.message}. Try again.`; }
+  });
+  const openRecommendations = () => {
+    if (location.hash === "#this-week") route();
+    else location.hash = "#this-week";
+  };
+  jobButton($("#build"), "/api/prepare", openRecommendations);
+  jobButton($("#prepare-history"), "/api/prepare", openRecommendations);
+
+  // --- importing Spotify history
+  const log = $("#file-log");
+  const drop = $("#drop");
+  const filesInput = $("#files");
+  const dataStatus = $("#data-status");
+  const upload = async (files) => {
+    if (!files.length) return;
+    if (importing || quickSaving || pickSaving) { toast("Music is already being saved. Choose these files again when it finishes."); return; }
+    importing = true;
+    filesInput.disabled = true;
+    drop.setAttribute("aria-disabled", "true");
+    updateBuildControls();
+    let added = 0;
+    let failures = 0;
+    try {
+      for (const [index, f] of files.entries()) {
+        const li = document.createElement("li");
+        li.textContent = `Importing ${index + 1} of ${files.length}: ${f.name}…`;
+        log.append(li);
+        if (dataStatus.isConnected) dataStatus.textContent = `Importing file ${index + 1} of ${files.length}. You can leave this view; keep Sideband open until it finishes.`;
+        try {
+          const r = await api("/api/import", { method: "POST", body: f, headers: { "X-Filename": enc(f.name) } });
+          const lib = Object.values(r.library || {}).reduce((a, b) => a + b, 0);
+          added += r.new_plays_added || 0;
+          li.textContent = r.plays || lib
+            ? `${f.name}: ${fmt(r.plays)} plays (${fmt(r.new_plays_added)} new)${lib ? `, ${fmt(lib)} library items` : ""}.`
+            : `${f.name}: no listening data found (${(r.files_ignored || []).length} files ignored).`;
+        } catch (err) {
+          failures++;
+          li.innerHTML = `<span class="error">${esc(f.name)}: ${esc(err.message)}. You can choose this file again to retry.</span>`;
+        }
+      }
+      await refreshState();
+      savedPicks = await api("/api/picks");
+      announcePicks();
+      const nextImportStep = state.lookup_available === false
+        ? "Your taste profile is ready. Connect the lookup service to find new music."
+        : state.personalization?.can_evaluate
+          ? "Use “Improve from my history” to map and test your taste in one step."
+          : "Find my music uses these plays now; more history is needed to test personal settings.";
+      if (dataStatus.isConnected) dataStatus.textContent = state.plays
+        ? `${fmt(state.plays)} plays saved (${fmt(added)} added now). ${failures ? `${failures} file${failures === 1 ? " needs" : "s need"} a retry. ` : ""}${nextImportStep}`
+        : "No history imported yet. Choose a Spotify history ZIP or JSON file to try again.";
+      const accuracy = $("#history-accuracy");
+      if (accuracy) accuracy.hidden = !state.plays;
+      toast(failures ? `Import finished with ${failures} file${failures === 1 ? "" : "s"} to retry.` : `${fmt(added)} new plays added. Your picks and ratings are kept.`);
+    } finally {
+      importing = false;
+      filesInput.disabled = false;
+      filesInput.value = ""; // selecting the same file again must fire change after an error
+      drop.setAttribute("aria-disabled", "false");
+      updateBuildControls();
+    }
+  };
+  filesInput.addEventListener("change", (e) => upload([...e.target.files]).catch((err) => toast(`Couldn’t finish importing: ${err.message}`, 7000)));
+  drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
+  drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+  drop.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("over"); upload([...e.dataTransfer.files]).catch((err) => toast(err.message)); });
+  drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("#files").click(); } });
+  drop.tabIndex = 0;
+  $("#clear-data").addEventListener("click", async (event) => {
+    if (!confirm("Delete your picked artists, imported listening data and learned interest from previews and music links? (Your Spotify account is not affected.)")) return;
+    event.currentTarget.disabled = true;
+    const clearButton = event.currentTarget;
+    previewSession = null;
+    stopPreview();
+    try { await api("/api/clear", { method: "POST", body: { what: "data" } }); } catch (err) { clearButton.disabled = false; toast(`Couldn’t delete your data: ${err.message}. Try again.`, 8000); return; }
+    store("mf.quickDraft", "");
+    toast("Picks, listening data and learned interest deleted.");
+    route();
+  });
+  $("#clear-fb").addEventListener("click", async (event) => {
+    if (!confirm("Delete all your song and artist ratings, plus learned interest from previews and music links?")) return;
+    event.currentTarget.disabled = true;
+    const clearButton = event.currentTarget;
+    previewSession = null;
+    stopPreview();
+    try { await api("/api/clear", { method: "POST", body: { what: "feedback" } }); } catch (err) { clearButton.disabled = false; toast(`Couldn’t delete your ratings: ${err.message}. Try again.`, 8000); return; }
+    feedbackChoices.clear();
+    toast("Ratings and learned interest deleted.");
+    await refreshState();
+    updateBuildControls();
+  });
+}
+
+if (BROWSER) {
+  const footer = document.querySelector("footer");
+  if (footer) footer.textContent = "Sideband runs inside your browser. Your picks and listening data stay on this device; only artist and song names pass through this site’s relay to public music services (Deezer, ListenBrainz, MusicBrainz, and Last.fm if this site has it set up).";
+}
+route();

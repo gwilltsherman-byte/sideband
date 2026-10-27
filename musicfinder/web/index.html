@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sideband: find artists and songs</title>
+  <meta name="description" content="Finds artists you haven't heard yet from the ones you love, explains every pick, and learns from what you keep.">
+  <meta name="theme-color" content="#faf7f0" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#19151a" media="(prefers-color-scheme: dark)">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/icon-180.png">
+  <script>try { const theme = localStorage.getItem("mf.theme"); if (["light", "dark"].includes(theme)) document.documentElement.dataset.theme = theme; } catch {}</script>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/listening-desk.css">
+  <link rel="stylesheet" href="/static/taste-filters.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="masthead">
+    <a class="wordmark" href="#this-week" aria-label="Sideband home">
+      <img class="brand-mark" src="/static/brand-mark.svg" width="32" height="32" alt="">
+      Sideband
+    </a>
+    <p class="brand-note">A little further from familiar.</p>
+    <nav class="tabs" aria-label="Sections"><a href="#this-week"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg><span>This week</span></a><a href="#songs"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V5l11-2v13M9 8l11-2"/><ellipse cx="6" cy="18" rx="3" ry="2"/><ellipse cx="17" cy="16" rx="3" ry="2"/></svg><span>Songs</span></a><a href="#explore"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m16 8-3 5-5 3 3-5Z"/></svg><span>Explore</span></a><a href="#taste"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 5c-3-3-7-1-8 1-1-2-5-4-8-1-4 4 2 10 8 15 6-5 12-11 8-15Z"/></svg><span>Your taste</span></a><a href="#accuracy"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10m8 10V4m8 16v-7"/></svg><span>Accuracy</span></a><a href="#setup"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/></svg><span>Setup</span></a></nav>
+    <label class="service-choice" for="listen-on"><span>Listen on</span><select id="listen-on" aria-label="Listen on"></select></label>
+    <label class="theme-choice" for="theme-select"><span>Appearance</span><select id="theme-select"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
+  </header>
+  <div id="demo-strip" class="strip demo" hidden>
+    <b>Demo listening room</b><span>Simulated taste and invented artists. Your own music stays separate.</span>
+  </div>
+  <div id="service-strip" class="strip service" hidden role="status">
+    <span>Your saved music and imports work here. Finding new music needs a connected lookup service.</span>
+    <a href="https://codespaces.new/gwilltsherman-byte/sideband">Open connected Sideband</a>
+    <a href="?demo=1">Try the demo</a>
+  </div>
+  <div id="job-strip" class="strip" hidden role="status" aria-live="polite">
+    <span id="job-step">Working…</span>
+    <div class="progress" aria-hidden="true"><span id="job-bar" style="width:0%"></span></div>
+    <span id="job-count" class="mono"></span>
+  </div>
+  <main id="main" tabindex="-1">
+    <div class="loading" role="status">Opening your listening space…</div>
+  </main>
+  <footer>
+    <a href="?demo=1">Try the demo</a><br>
+    Sideband saves your picks and listening data on the device you use; only artist and song names are sent to public music services (Deezer, ListenBrainz, MusicBrainz, and Last.fm if a key is set up) to look up similarity.
+  </footer>
+  <div id="tooltip" class="tooltip" hidden></div>
+  <div id="toast" class="toast" hidden role="status" aria-live="polite"></div>
+  <audio id="player" preload="none"></audio>
+  <script src="/static/app.js" type="module"></script>
+</body>
+</html>
